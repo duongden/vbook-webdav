@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vbook-webdav",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-20",
+  "vars": {
+    "ADMIN_PIN": "123456" // Change this to your secret PIN
+  },
+  "kv_namespaces": [
+    {
+      "binding": "USER_KV",
+      "id": "YOUR_KV_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "STORAGE_R2",
+      "bucket_name": "YOUR_BUCKET_NAME"
+    }
+  ]
+}
