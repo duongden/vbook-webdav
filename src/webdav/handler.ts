@@ -1,5 +1,5 @@
 import { Context } from 'hono';
-import { Env, UserConfig } from '../types';
+import { Env } from '../types';
 
 function formatHTTPDate(date: Date) {
   return date.toUTCString();
@@ -17,23 +17,62 @@ function escapeXML(str: string) {
             .replace(/'/g, '&apos;');
 }
 
+/**
+ * SECURITY (VULN-04): Sanitize and validate the R2 object key to prevent path traversal.
+ * Returns null if the resulting key escapes the user's own directory.
+ */
+export function sanitizeObjectKey(username: string, rawPath: string): string | null {
+  // Decode any percent-encoded sequences before checking
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawPath);
+  } catch {
+    return null; // Malformed encoding
+  }
+
+  // Normalize path: collapse consecutive slashes and resolve '..' segments
+  const segments = decoded.split('/');
+  const resolved: string[] = [];
+  for (const seg of segments) {
+    if (seg === '..') {
+      resolved.pop(); // Go up one level
+    } else if (seg !== '.') {
+      resolved.push(seg);
+    }
+  }
+  const normalizedPath = resolved.join('/');
+
+  // Build the final key and ensure it is strictly prefixed by the user's directory
+  const userPrefix = `${username}/`;
+  const objectKey = normalizedPath === '' || normalizedPath === '/' ? userPrefix : `${username}/${normalizedPath.replace(/^\//, '')}`;
+  if (!objectKey.startsWith(userPrefix)) {
+    return null; // Path traversal detected — reject
+  }
+  return objectKey;
+}
+
 async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username: string } }>) {
   const username = c.get('username');
   let path = c.req.path.replace(/^\/webdav/, '');
   if (!path.startsWith('/')) path = '/' + path;
-  
+
+  // SECURITY (VULN-04): Validate path against traversal — consistent with other methods
+  const sanitized = sanitizeObjectKey(username, path);
+  if (sanitized === null) {
+    return c.text('Forbidden', 403);
+  }
+
   const depth = c.req.header('Depth') || '1';
-  const prefix = path === '/' ? `${username}/` : `${username}${path.endsWith('/') ? path : path + '/'}`;
-  const filePrefix = path === '/' ? `${username}/` : `${username}${path}`;
-  
+  const prefix = sanitized.endsWith('/') ? sanitized : sanitized + '/';
+  const filePrefix = sanitized;
   let xml = `<?xml version="1.0" encoding="utf-8" ?>\n`;
   xml += `<D:multistatus xmlns:D="DAV:">\n`;
 
   // For Depth 0 or 1, we always need the root element of the request
-  const isRoot = path === '/';
+  const isRoot = sanitized === `${username}/`;
   
   // If not root, check if it's a file or directory
-  let isDirectory = path.endsWith('/') || isRoot;
+  let isDirectory = sanitized.endsWith('/') || isRoot;
   let rootSize = 0;
   let rootLastModified = new Date();
   
@@ -82,16 +121,19 @@ async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username:
     
     // Add subdirectories
     for (const subPrefix of list.delimitedPrefixes) {
-      const dirName = subPrefix.substring(prefix.length);
-      const subHref = reqHref.endsWith('/') ? `${reqHref}${dirName}` : `${reqHref}/${dirName}`;
+      const dirName = subPrefix.substring(prefix.length); // e.g. "my folder/"
+      const cleanDirName = dirName.endsWith('/') ? dirName.slice(0, -1) : dirName;
+      const encodedDirName = encodeURIComponent(cleanDirName) + '/';
+      const subHref = reqHref.endsWith('/') ? `${reqHref}${encodedDirName}` : `${reqHref}/${encodedDirName}`;
       xml += renderResponse(subHref, true, 0, new Date());
     }
 
     // Add files
     for (const obj of list.objects) {
       if (obj.key === prefix) continue; // skip the folder itself if it exists as an object
-      const fileName = obj.key.substring(prefix.length);
-      const subHref = reqHref.endsWith('/') ? `${reqHref}${fileName}` : `${reqHref}/${fileName}`;
+      const fileName = obj.key.substring(prefix.length); // e.g. "my file.txt"
+      const encodedFileName = encodeURIComponent(fileName);
+      const subHref = reqHref.endsWith('/') ? `${reqHref}${encodedFileName}` : `${reqHref}/${encodedFileName}`;
       xml += renderResponse(subHref, false, obj.size, obj.uploaded);
     }
   }
@@ -106,8 +148,12 @@ export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { use
   const username = c.get('username');
   let path = c.req.path.replace(/^\/webdav/, '');
   if (!path.startsWith('/')) path = '/' + path;
-  
-  const objectKey = path === '/' ? `${username}/` : `${username}${path}`;
+
+  // SECURITY (VULN-04): Validate the path and build a safe R2 object key
+  const objectKey = sanitizeObjectKey(username, path);
+  if (objectKey === null) {
+    return c.text('Forbidden', 403);
+  }
 
   if (method === 'OPTIONS') {
     c.header('Allow', 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND');
@@ -161,17 +207,14 @@ export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { use
 
   if (method === 'DELETE') {
     await c.env.STORAGE_R2.delete(objectKey);
-    // Note: To perfectly mimic a directory delete, we should delete all objects with this prefix.
-    // For VBook, simple object delete might be enough, but let's implement prefix delete just in case.
-    if (objectKey.endsWith('/')) {
-      const list = await c.env.STORAGE_R2.list({ prefix: objectKey });
-      const keys = list.objects.map(o => o.key);
-      if (keys.length > 0) {
-        // Cloudflare R2 currently requires deleting one by one or in batches.
-        // For simplicity and to avoid limits in a single request, we do a loop (since usually few files).
-        await Promise.all(keys.map(k => c.env.STORAGE_R2.delete(k)));
-      }
+    const dirPrefix = objectKey.endsWith('/') ? objectKey : objectKey + '/';
+    const list = await c.env.STORAGE_R2.list({ prefix: dirPrefix });
+    const keys = list.objects.map(o => o.key);
+    if (keys.length > 0) {
+      await Promise.all(keys.map(k => c.env.STORAGE_R2.delete(k)));
     }
+    // Invalidate KV usage cache so the next PUT/dashboard lists and re-seeds it.
+    await c.env.USER_KV.delete(`usage:${username}`);
     return c.text('No Content', 204);
   }
 

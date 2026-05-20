@@ -6,6 +6,7 @@ export type Env = {
 
 export interface UserConfig {
   password_hash: string;
+  salt?: string;          // PBKDF2 salt (hex). Absent on legacy plain-text accounts.
   quota_mb: number;
   max_file_size_mb: number;
   status: 'active' | 'suspended';
