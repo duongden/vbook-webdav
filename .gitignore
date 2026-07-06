@@ -33,3 +33,15 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+#agent
+.agents/
+.agent/
+
+
+#backlog
+backlog/
+backlog-*.md
+
+# pnpm
+pnpm-*.yaml

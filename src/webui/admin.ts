@@ -45,13 +45,16 @@ const authMiddleware = async (c: any, next: any) => {
     return c.redirect('/admin/login');
   }
   // Ensure CSRF token cookie is always set for authenticated sessions
-  if (!getCookie(c, 'csrf_token')) {
-    setCookie(c, 'csrf_token', generateCsrfToken(), {
+  let csrfCookie = getCookie(c, 'csrf_token');
+  if (!csrfCookie) {
+    csrfCookie = generateCsrfToken();
+    setCookie(c, 'csrf_token', csrfCookie, {
       path: '/admin',
       secure: true,
       sameSite: 'Strict'
     });
   }
+  c.set('_csrf', csrfCookie);
   await next();
 };
 
@@ -75,21 +78,22 @@ async function validateCsrf(c: any): Promise<boolean> {
 adminApp.get('/login', (c) => {
   return c.html(html`
     <!DOCTYPE html>
-    <html lang="en" class="dark">
+    <html lang="en">
     <head>
       <meta charset="UTF-8">
       <title>Admin Login · Vân Du</title>
       <script src="https://cdn.tailwindcss.com"></script>
-      <style>body { background-color: #0f172a; color: white; }</style>
+      <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
+      <style>body{background-color:#fbfbfb;background-image:radial-gradient(rgba(128,198,249,0.2) 1px,transparent 1px);background-size:20px 20px;color:#333;font-family:system-ui,sans-serif;}</style>
     </head>
     <body class="flex items-center justify-center min-h-screen">
-      <form method="POST" action="/admin/login" class="bg-slate-800 p-8 rounded-xl shadow-xl w-96">
-        <h2 class="text-2xl font-bold mb-6 text-center text-rose-500">Admin Area</h2>
+      <form method="POST" action="/admin/login" class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-secondary w-96">
+        <h2 class="text-2xl font-bold mb-6 text-center text-slate-800">Admin Area</h2>
         <input type="password" name="pin" placeholder="Enter PIN"
-          class="w-full bg-slate-900 border border-slate-700 rounded p-3 mb-4 text-white focus:outline-none focus:border-rose-500"
+          class="w-full bg-white border border-slate-200 rounded-lg p-3 mb-6 text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all shadow-sm"
           required autofocus>
         <button type="submit"
-          class="w-full bg-rose-600 hover:bg-rose-700 text-white font-medium py-3 rounded transition-colors">
+          class="w-full bg-primary hover:brightness-95 text-slate-800 font-bold py-3 rounded-lg shadow-sm transition-all transform hover:-translate-y-0.5">
           Login
         </button>
       </form>
@@ -112,15 +116,16 @@ adminApp.post('/login', async (c) => {
 
   if (attempts.count >= MAX_ATTEMPTS && Date.now() < attempts.until) {
     const remainingMinutes = Math.ceil((attempts.until - Date.now()) / 60000);
-    return c.html(`<!DOCTYPE html><html lang="en" class="dark">
+    return c.html(`<!DOCTYPE html><html lang="en">
       <head><meta charset="UTF-8"><title>Locked</title>
       <script src="https://cdn.tailwindcss.com"></script>
-      <style>body{background:#0f172a;color:white;}</style></head>
+      <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
+      <style>body{background-color:#fbfbfb;background-image:radial-gradient(rgba(128,198,249,0.2) 1px,transparent 1px);background-size:20px 20px;color:#333;font-family:system-ui,sans-serif;}</style></head>
       <body class="flex items-center justify-center min-h-screen">
-        <div class="bg-slate-800 p-8 rounded-xl shadow-xl w-96 text-center">
+        <div class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-danger/30 w-96 text-center">
           <div class="text-4xl mb-4">🔒</div>
-          <h2 class="text-xl font-bold mb-2 text-rose-400">Too Many Attempts</h2>
-          <p class="text-slate-400 text-sm">Locked for <strong class="text-white">${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''}</strong>.</p>
+          <h2 class="text-xl font-bold mb-2 text-danger">Too Many Attempts</h2>
+          <p class="text-slate-600 text-sm">Locked for <strong class="text-slate-900">${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''}</strong>.</p>
         </div>
       </body></html>`, 429);
   }
@@ -143,19 +148,20 @@ adminApp.post('/login', async (c) => {
     c.env.USER_KV.put(rateLimitKey, JSON.stringify({ count: newCount, until }), { expirationTtl: LOCKOUT_SECONDS })
   );
   const remaining = MAX_ATTEMPTS - newCount;
-  return c.html(`<!DOCTYPE html><html lang="en" class="dark">
+  return c.html(`<!DOCTYPE html><html lang="en">
     <head><meta charset="UTF-8"><title>Admin Login</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>body{background:#0f172a;color:white;}</style></head>
+    <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
+    <style>body{background-color:#fbfbfb;background-image:radial-gradient(rgba(128,198,249,0.2) 1px,transparent 1px);background-size:20px 20px;color:#333;font-family:system-ui,sans-serif;}</style></head>
     <body class="flex items-center justify-center min-h-screen">
-      <form method="POST" action="/admin/login" class="bg-slate-800 p-8 rounded-xl shadow-xl w-96">
-        <h2 class="text-2xl font-bold mb-4 text-center text-rose-500">Admin Area</h2>
-        <p class="text-amber-400 text-sm text-center mb-4">
+      <form method="POST" action="/admin/login" class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-secondary w-96">
+        <h2 class="text-2xl font-bold mb-4 text-center text-slate-800">Admin Area</h2>
+        <p class="text-danger text-sm text-center mb-6 font-medium">
           Invalid PIN. ${remaining > 0 ? `${remaining} attempt${remaining > 1 ? 's' : ''} remaining.` : 'Account locked.'}
         </p>
         <input type="password" name="pin" placeholder="Enter PIN"
-          class="w-full bg-slate-900 border border-rose-700 rounded p-3 mb-4 text-white focus:outline-none" required autofocus>
-        <button type="submit" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-medium py-3 rounded transition-colors">Login</button>
+          class="w-full bg-white border border-danger/50 rounded-lg p-3 mb-6 text-slate-800 focus:outline-none focus:ring-2 focus:ring-danger transition-all shadow-sm" required autofocus>
+        <button type="submit" class="w-full bg-primary hover:brightness-95 text-slate-800 font-bold py-3 rounded-lg shadow-sm transition-all transform hover:-translate-y-0.5">Login</button>
       </form>
     </body></html>`, 401);
 });
@@ -168,20 +174,18 @@ adminApp.use('*', authMiddleware);
 
 adminApp.get('/', async (c) => {
   const list = await c.env.USER_KV.list({ prefix: 'user:' });
-  const users = (await Promise.all(
-    list.keys.map(async (k) => {
-      const data = await c.env.USER_KV.get(k.name);
-      const username = k.name.substring(5);
-      if (data) return { username, ...JSON.parse(data) as UserConfig };
-      return null;
-    })
-  )).filter(Boolean) as Array<{ username: string } & UserConfig>;
+  const users: Array<{ username: string } & UserConfig> = [];
+  for (const k of list.keys) {
+    const data = await c.env.USER_KV.get(k.name);
+    const username = k.name.substring(5);
+    if (data) users.push({ username, ...JSON.parse(data) as UserConfig });
+  }
 
-  const csrf = getCookie(c, 'csrf_token') || '';
+  const csrf = c.get('_csrf') || getCookie(c, 'csrf_token') || '';
 
   // Build storage usage per user using KV cache
   const usageMap: Record<string, number> = {};
-  await Promise.all(users.map(async (u) => {
+  for (const u of users) {
     let bytes = 0;
     const cachedUsage = await c.env.USER_KV.get(`usage:${u.username}`);
     if (cachedUsage !== null) {
@@ -197,7 +201,7 @@ adminApp.get('/', async (c) => {
       await c.env.USER_KV.put(`usage:${u.username}`, bytes.toString());
     }
     usageMap[u.username] = bytes;
-  }));
+  }
 
   function fmtBytes(b: number) {
     if (b === 0) return '0 B';
@@ -208,34 +212,38 @@ adminApp.get('/', async (c) => {
 
   const page = html`
     <!DOCTYPE html>
-    <html lang="en" class="dark">
+    <html lang="en">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Admin Dashboard · Vân Du</title>
       <script src="https://cdn.tailwindcss.com"></script>
-      <script>tailwind.config = { darkMode: 'class' }</script>
+      <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
       <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
-        .glass { background: rgba(30,41,59,0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
-        .bar-track { background: rgba(255,255,255,0.07); border-radius: 9999px; overflow: hidden; height: 6px; }
+        body { font-family: system-ui, sans-serif; background-color: #fbfbfb; color: #333;
+          background-image: radial-gradient(rgba(128,198,249,0.2) 1px, transparent 1px); background-size: 20px 20px; }
+        .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(250,232,122,0.6); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .bar-track { background: #f1f5f9; border-radius: 9999px; overflow: hidden; height: 8px; border: 1px solid #e2e8f0; }
         .bar-fill  { height: 100%; border-radius: 9999px; transition: width 0.4s ease; }
-        input, select { transition: border-color 0.15s; }
-        input:focus, select:focus { outline: none; border-color: #e11d48 !important; }
-        .btn { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem;
-               padding: 3px 10px; border-radius: 6px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
-        .btn-edit    { background: rgba(99,102,241,0.15); color: #a5b4fc; border-color: rgba(99,102,241,0.3); }
-        .btn-edit:hover { background: rgba(99,102,241,0.3); }
-        .btn-suspend { background: rgba(245,158,11,0.15); color: #fcd34d; border-color: rgba(245,158,11,0.3); }
-        .btn-suspend:hover { background: rgba(245,158,11,0.3); }
-        .btn-activate{ background: rgba(16,185,129,0.15); color: #6ee7b7; border-color: rgba(16,185,129,0.3); }
-        .btn-activate:hover { background: rgba(16,185,129,0.3); }
-        .btn-delete  { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.25); }
-        .btn-delete:hover { background: rgba(239,68,68,0.3); }
-        #toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 10px;
-                 font-size: 0.875rem; font-weight: 500; opacity: 0; transform: translateY(8px);
-                 transition: all 0.25s; pointer-events: none; z-index: 999; }
+        input, select { transition: all 0.2s; border: 1px solid #cbd5e1; }
+        input:focus, select:focus { outline: none; border-color: #80c6f9 !important; box-shadow: 0 0 0 3px rgba(128,198,249,0.2); }
+        .btn { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 500;
+               padding: 4px 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+        .btn-edit    { background: #eff6ff; color: #3b82f6; border-color: #bfdbfe; }
+        .btn-edit:hover { background: #dbeafe; transform: translateY(-1px); }
+        .btn-suspend { background: #fef3c7; color: #d97706; border-color: #fde68a; }
+        .btn-suspend:hover { background: #fde68a; transform: translateY(-1px); }
+        .btn-activate{ background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+        .btn-activate:hover { background: #d1fae5; transform: translateY(-1px); }
+        .btn-delete  { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+        .btn-delete:hover { background: #fee2e2; transform: translateY(-1px); }
+        #toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 24px; border-radius: 12px;
+                 font-size: 0.875rem; font-weight: 600; opacity: 0; transform: translateY(12px); color: #fff;
+                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none; z-index: 999; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
         #toast.show { opacity: 1; transform: translateY(0); }
+        .toast-success { background: #10b981; }
+        .toast-error { background: #e43b12; }
+        .toast-info { background: #80c6f9; color: #1e293b !important; }
       </style>
     </head>
     <body class="p-4 md:p-8">
@@ -244,10 +252,10 @@ adminApp.get('/', async (c) => {
       <div class="max-w-6xl mx-auto">
         <header class="flex justify-between items-center mb-8 glass p-5 rounded-2xl">
           <div>
-            <h1 class="text-xl font-bold text-rose-500">Admin Dashboard</h1>
-            <p class="text-xs text-slate-500 mt-0.5">${users.length} user${users.length !== 1 ? 's' : ''} registered</p>
+            <h1 class="text-2xl font-bold text-slate-800">Admin Dashboard</h1>
+            <p class="text-sm text-slate-500 mt-1">${users.length} user${users.length !== 1 ? 's' : ''} registered</p>
           </div>
-          <a href="/admin/logout" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">Logout →</a>
+          <a href="/admin/logout" class="text-sm font-medium text-slate-500 hover:text-danger transition-colors bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">Logout →</a>
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -255,57 +263,57 @@ adminApp.get('/', async (c) => {
           <!-- ── Sidebar: Add / Edit Form ── -->
           <div class="lg:col-span-1">
             <div class="glass p-6 rounded-2xl sticky top-6">
-              <h2 id="form-title" class="text-base font-semibold mb-5 text-slate-200">Add New User</h2>
+              <h2 id="form-title" class="text-lg font-bold mb-5 text-slate-800">Add New User</h2>
               <form id="user-form" method="POST" action="/admin/user" class="space-y-4">
                 <input type="hidden" name="_csrf" value="${csrf}">
                 <input type="hidden" name="_mode" id="form-mode" value="create">
 
                 <div>
-                  <label class="block text-xs text-slate-400 mb-1.5">Username</label>
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">Username</label>
                   <input id="f-username" type="text" name="username"
-                    class="w-full bg-slate-900/80 border border-slate-700 rounded-lg p-2.5 text-white text-sm"
+                    class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm"
                     placeholder="e.g. alice" required>
                 </div>
 
                 <div>
-                  <label class="block text-xs text-slate-400 mb-1.5">
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">
                     Password
-                    <span id="pwd-hint" class="text-slate-600 ml-1">(required)</span>
+                    <span id="pwd-hint" class="text-slate-400 font-normal ml-1">(required)</span>
                   </label>
                   <input id="f-password" type="password" name="password"
-                    class="w-full bg-slate-900/80 border border-slate-700 rounded-lg p-2.5 text-white text-sm"
+                    class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm"
                     placeholder="Enter password">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
                   <div>
-                    <label class="block text-xs text-slate-400 mb-1.5">Quota (MB)</label>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Quota (MB)</label>
                     <input id="f-quota" type="number" name="quota_mb" value="500" min="1"
-                      class="w-full bg-slate-900/80 border border-slate-700 rounded-lg p-2.5 text-white text-sm" required>
+                      class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm" required>
                   </div>
                   <div>
-                    <label class="block text-xs text-slate-400 mb-1.5">Max File (MB)</label>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Max File (MB)</label>
                     <input id="f-maxfile" type="number" name="max_file_size_mb" value="50" min="1"
-                      class="w-full bg-slate-900/80 border border-slate-700 rounded-lg p-2.5 text-white text-sm" required>
+                      class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm" required>
                   </div>
                 </div>
 
                 <div id="status-row" class="hidden">
-                  <label class="block text-xs text-slate-400 mb-1.5">Status</label>
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">Status</label>
                   <select id="f-status" name="status"
-                    class="w-full bg-slate-900/80 border border-slate-700 rounded-lg p-2.5 text-white text-sm">
+                    class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm">
                     <option value="active">Active</option>
                     <option value="suspended">Suspended</option>
                   </select>
                 </div>
 
-                <div class="flex gap-2 pt-1">
+                <div class="flex gap-2 pt-2">
                   <button type="submit" id="form-submit-btn"
-                    class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-medium py-2.5 rounded-lg transition-colors text-sm">
+                    class="flex-1 bg-primary hover:brightness-95 text-slate-800 font-bold py-2.5 rounded-lg shadow-sm transition-all transform hover:-translate-y-0.5 text-sm">
                     Save User
                   </button>
                   <button type="button" id="form-cancel-btn" onclick="resetForm()"
-                    class="hidden px-4 bg-slate-700 hover:bg-slate-600 text-white font-medium py-2.5 rounded-lg transition-colors text-sm">
+                    class="hidden px-4 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 font-medium py-2.5 rounded-lg shadow-sm transition-all text-sm">
                     Cancel
                   </button>
                 </div>
@@ -315,57 +323,57 @@ adminApp.get('/', async (c) => {
 
           <!-- ── User Table ── -->
           <div class="lg:col-span-2">
-            <div class="glass rounded-2xl overflow-hidden">
-              <div class="p-5 border-b border-slate-700/50 flex items-center justify-between">
-                <h2 class="text-base font-semibold text-slate-200">Users</h2>
-                <span class="text-xs text-slate-500">Click <strong class="text-indigo-400">Edit</strong> to modify a user</span>
+            <div class="glass rounded-2xl overflow-hidden bg-white/60">
+              <div class="p-5 border-b border-slate-200 flex items-center justify-between bg-white/40">
+                <h2 class="text-lg font-bold text-slate-800">Users</h2>
+                <span class="text-xs text-slate-500 font-medium bg-secondary px-3 py-1 rounded-full">Click Edit to modify a user</span>
               </div>
               <div class="overflow-x-auto">
                 <table class="w-full text-left">
                   <thead>
-                    <tr class="text-slate-500 text-xs uppercase bg-slate-800/60 border-b border-slate-700/50">
-                      <th class="px-4 py-3 font-medium">User</th>
-                      <th class="px-4 py-3 font-medium">Storage</th>
-                      <th class="px-4 py-3 font-medium">Limits</th>
-                      <th class="px-4 py-3 font-medium">Status</th>
-                      <th class="px-4 py-3 font-medium text-right">Actions</th>
+                    <tr class="text-slate-500 text-xs uppercase bg-slate-50/80 border-b border-slate-200">
+                      <th class="px-4 py-3 font-semibold">User</th>
+                      <th class="px-4 py-3 font-semibold">Storage</th>
+                      <th class="px-4 py-3 font-semibold">Limits</th>
+                      <th class="px-4 py-3 font-semibold">Status</th>
+                      <th class="px-4 py-3 font-semibold text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-slate-700/40 text-sm">
+                  <tbody class="divide-y divide-slate-100 text-sm bg-white/40">
                     ${users.length === 0 ? html`
-                      <tr><td colspan="5" class="px-4 py-10 text-center text-slate-600">No users yet. Add one using the form.</td></tr>
+                      <tr><td colspan="5" class="px-4 py-10 text-center text-slate-500 font-medium">No users yet. Add one using the form.</td></tr>
                     ` : users.map((u) => {
                       const usageBytes = usageMap[u.username] || 0;
                       const quotaBytes = (u.quota_mb || 500) * 1024 * 1024;
                       const pct = Math.min(100, Math.round(usageBytes / quotaBytes * 100));
-                      const barColor = pct > 85 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#10b981';
+                      const barColor = pct > 85 ? '#e43b12' : pct > 60 ? '#f59e0b' : '#10b981';
                       return html`
-                      <tr class="hover:bg-slate-800/30 transition-colors group" id="row-${u.username}">
-                        <td class="px-4 py-3">
-                          <span class="font-semibold text-white">${u.username}</span>
+                      <tr class="hover:bg-primary/5 transition-colors group" id="row-${u.username}">
+                        <td class="px-4 py-4">
+                          <span class="font-bold text-slate-800">${u.username}</span>
                         </td>
-                        <td class="px-4 py-3">
-                          <div class="text-xs text-slate-400 mb-1">${fmtBytes(usageBytes)} / ${u.quota_mb} MB</div>
-                          <div class="bar-track w-28">
+                        <td class="px-4 py-4">
+                          <div class="text-xs text-slate-600 mb-1.5 font-medium">${fmtBytes(usageBytes)} / ${u.quota_mb} MB</div>
+                          <div class="bar-track w-28 shadow-inner">
                             <div class="bar-fill" style="width:${pct}%;background:${barColor}"></div>
                           </div>
                         </td>
-                        <td class="px-4 py-3 text-xs text-slate-400">
-                          <div>Quota: <span class="text-slate-300">${u.quota_mb} MB</span></div>
-                          <div>Max file: <span class="text-slate-300">${u.max_file_size_mb} MB</span></div>
+                        <td class="px-4 py-4 text-xs text-slate-500">
+                          <div class="mb-0.5">Quota: <span class="font-medium text-slate-700">${u.quota_mb} MB</span></div>
+                          <div>Max file: <span class="font-medium text-slate-700">${u.max_file_size_mb} MB</span></div>
                         </td>
-                        <td class="px-4 py-3">
-                          <span class="text-xs px-2 py-1 rounded-full font-medium
+                        <td class="px-4 py-4">
+                          <span class="text-xs px-2.5 py-1 rounded-full font-bold shadow-sm
                             ${u.status === 'active'
-                              ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-800/50'
-                              : 'bg-red-900/30 text-red-400 border border-red-800/50'}">
+                              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                              : 'bg-red-100 text-red-700 border border-red-200'}">
                             ${u.status}
                           </span>
                         </td>
-                        <td class="px-4 py-3 text-right">
-                          <div class="flex items-center justify-end gap-1.5">
+                        <td class="px-4 py-4 text-right">
+                          <div class="flex items-center justify-end gap-2">
                             <!-- Edit -->
-                            <button type="button" class="btn btn-edit"
+                            <button type="button" class="btn btn-edit shadow-sm"
                               onclick="editUser(${JSON.stringify(u.username)}, ${u.quota_mb}, ${u.max_file_size_mb}, '${u.status}')">
                               ✏️ Edit
                             </button>
@@ -375,7 +383,7 @@ adminApp.get('/', async (c) => {
                               <input type="hidden" name="_csrf" value="${csrf}">
                               <input type="hidden" name="username" value="${u.username}">
                               <input type="hidden" name="action" value="${u.status === 'active' ? 'suspend' : 'activate'}">
-                              <button type="submit" class="btn ${u.status === 'active' ? 'btn-suspend' : 'btn-activate'}">
+                              <button type="submit" class="btn ${u.status === 'active' ? 'btn-suspend' : 'btn-activate'} shadow-sm">
                                 ${u.status === 'active' ? '⏸ Suspend' : '▶ Activate'}
                               </button>
                             </form>
@@ -385,7 +393,7 @@ adminApp.get('/', async (c) => {
                               onsubmit="return confirm('Delete user ${u.username} and ALL their files?')">
                               <input type="hidden" name="_csrf" value="${csrf}">
                               <input type="hidden" name="username" value="${u.username}">
-                              <button type="submit" class="btn btn-delete">🗑 Delete</button>
+                              <button type="submit" class="btn btn-delete shadow-sm">🗑 Delete</button>
                             </form>
                           </div>
                         </td>
@@ -400,12 +408,13 @@ adminApp.get('/', async (c) => {
       </div>
 
       <script>
-        function showToast(msg, color) {
+        function showToast(msg, type) {
           const t = document.getElementById('toast');
-          t.textContent = msg;
-          t.style.background = color === 'green' ? 'rgba(16,185,129,0.9)' : color === 'red' ? 'rgba(239,68,68,0.9)' : 'rgba(99,102,241,0.9)';
+          // Replace literal '+' with spaces for nicer display if generated from BE
+          t.textContent = msg.replace(/\\+/g, ' ');
+          t.className = 'toast-' + type;
           t.classList.add('show');
-          setTimeout(() => t.classList.remove('show'), 2800);
+          setTimeout(() => t.classList.remove('show'), 3500);
         }
 
         function editUser(username, quota, maxFile, status) {
@@ -414,18 +423,17 @@ adminApp.get('/', async (c) => {
           document.getElementById('form-mode').value = 'edit';
           document.getElementById('f-username').value = username;
           document.getElementById('f-username').readOnly = true;
-          document.getElementById('f-username').classList.add('opacity-50', 'cursor-not-allowed');
+          document.getElementById('f-username').classList.add('opacity-60', 'bg-slate-100', 'cursor-not-allowed');
           document.getElementById('f-password').required = false;
           document.getElementById('f-password').placeholder = 'Leave blank to keep current';
-          document.getElementById('pwd-hint').textContent = '(optional — leave blank to keep)';
+          document.getElementById('pwd-hint').textContent = '(optional)';
           document.getElementById('f-quota').value = quota;
           document.getElementById('f-maxfile').value = maxFile;
           document.getElementById('f-status').value = status;
           document.getElementById('status-row').classList.remove('hidden');
           document.getElementById('form-cancel-btn').classList.remove('hidden');
-          // Scroll to form
           document.getElementById('user-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-          showToast('Editing ' + username, 'indigo');
+          showToast('Editing ' + username, 'info');
         }
 
         function resetForm() {
@@ -434,7 +442,7 @@ adminApp.get('/', async (c) => {
           document.getElementById('form-mode').value = 'create';
           document.getElementById('f-username').value = '';
           document.getElementById('f-username').readOnly = false;
-          document.getElementById('f-username').classList.remove('opacity-50', 'cursor-not-allowed');
+          document.getElementById('f-username').classList.remove('opacity-60', 'bg-slate-100', 'cursor-not-allowed');
           document.getElementById('f-password').required = true;
           document.getElementById('f-password').value = '';
           document.getElementById('f-password').placeholder = 'Enter password';
@@ -445,11 +453,9 @@ adminApp.get('/', async (c) => {
           document.getElementById('form-cancel-btn').classList.add('hidden');
         }
 
-        // Show toast if redirected with ?msg param
         const params = new URLSearchParams(location.search);
-        if (params.get('ok')) showToast(params.get('ok'), 'green');
-        if (params.get('err')) showToast(params.get('err'), 'red');
-        // Clean URL
+        if (params.get('ok')) showToast(params.get('ok'), 'success');
+        if (params.get('err')) showToast(params.get('err'), 'error');
         if (params.has('ok') || params.has('err')) history.replaceState({}, '', '/admin');
       </script>
     </body>
@@ -467,20 +473,25 @@ adminApp.post('/user', async (c) => {
   const username = (body['username'] as string || '').trim();
   const password = (body['password'] as string || '').trim();
   const mode     = body['_mode'] as string || 'create';
-  const quota    = parseInt(body['quota_mb'] as string, 10) || 500;
-  const maxSize  = parseInt(body['max_file_size_mb'] as string, 10) || 50;
+  const quota    = Math.max(1, parseInt(body['quota_mb'] as string, 10) || 500);
+  const maxSize  = Math.max(1, parseInt(body['max_file_size_mb'] as string, 10) || 50);
   const status   = body['status'] === 'suspended' ? 'suspended' : 'active';
 
-  if (!username) return c.redirect('/admin?err=Username+is+required');
+  if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
+    return c.redirect(`/admin?err=${encodeURIComponent('Invalid username (alphanumeric, -, _ only)')}`);
+  }
 
   const existingStr = await c.env.USER_KV.get(`user:${username}`);
   const existing = existingStr ? JSON.parse(existingStr) as UserConfig : null;
 
   if (mode === 'create' && existing) {
-    return c.redirect('/admin?err=User+already+exists.+Use+Edit+to+update.');
+    return c.redirect(`/admin?err=${encodeURIComponent('User already exists. Use Edit to update.')}`);
+  }
+  if (mode === 'edit' && !existing) {
+    return c.redirect(`/admin?err=${encodeURIComponent('User not found. Cannot edit.')}`);
   }
   if (mode === 'create' && !password) {
-    return c.redirect('/admin?err=Password+is+required+for+new+users.');
+    return c.redirect(`/admin?err=${encodeURIComponent('Password is required for new users.')}`);
   }
 
   let passwordHash = existing?.password_hash ?? '';
@@ -501,8 +512,8 @@ adminApp.post('/user', async (c) => {
   };
 
   await c.env.USER_KV.put(`user:${username}`, JSON.stringify(config));
-  const msg = mode === 'create' ? `User+${username}+created` : `User+${username}+updated`;
-  return c.redirect(`/admin?ok=${msg}`);
+  const msg = mode === 'create' ? `User ${username} created` : `User ${username} updated`;
+  return c.redirect(`/admin?ok=${encodeURIComponent(msg)}`);
 });
 
 // ─── POST /admin/suspend — Toggle active/suspended ────────────────────────────
@@ -514,17 +525,17 @@ adminApp.post('/suspend', async (c) => {
   const username = (body['username'] as string || '').trim();
   const action   = body['action'] as string; // 'suspend' | 'activate'
 
-  if (!username) return c.redirect('/admin?err=Missing+username');
+  if (!username) return c.redirect(`/admin?err=${encodeURIComponent('Missing username')}`);
 
   const existingStr = await c.env.USER_KV.get(`user:${username}`);
-  if (!existingStr) return c.redirect('/admin?err=User+not+found');
+  if (!existingStr) return c.redirect(`/admin?err=${encodeURIComponent('User not found')}`);
 
   const config = JSON.parse(existingStr) as UserConfig;
   config.status = action === 'suspend' ? 'suspended' : 'active';
 
   await c.env.USER_KV.put(`user:${username}`, JSON.stringify(config));
   const verb = config.status === 'suspended' ? 'suspended' : 'activated';
-  return c.redirect(`/admin?ok=User+${username}+${verb}`);
+  return c.redirect(`/admin?ok=${encodeURIComponent(`User ${username} ${verb}`)}`);
 });
 
 // ─── POST /admin/delete — Delete user + files ─────────────────────────────────
@@ -534,7 +545,7 @@ adminApp.post('/delete', async (c) => {
 
   const body = await getParsedBody(c);
   const username = (body['username'] as string || '').trim();
-  if (!username) return c.redirect('/admin?err=Missing+username');
+  if (!username) return c.redirect(`/admin?err=${encodeURIComponent('Missing username')}`);
 
   // Delete user config and usage from KV
   await c.env.USER_KV.delete(`user:${username}`);
@@ -547,13 +558,20 @@ adminApp.post('/delete', async (c) => {
     do {
       listed = await c.env.STORAGE_R2.list(opts);
       if (listed.objects.length > 0) {
-        await Promise.all(listed.objects.map(o => c.env.STORAGE_R2.delete(o.key)));
+        // Cloudflare allows 50 concurrent subrequests. We chunk by 30 to be safe.
+        const chunked = [];
+        for (let i = 0; i < listed.objects.length; i += 30) {
+          chunked.push(listed.objects.slice(i, i + 30));
+        }
+        for (const chunk of chunked) {
+          await Promise.all(chunk.map(o => c.env.STORAGE_R2.delete(o.key)));
+        }
       }
       opts.cursor = listed.truncated ? listed.cursor : undefined;
     } while (listed.truncated);
   })());
 
-  return c.redirect(`/admin?ok=User+${username}+and+all+files+deleted`);
+  return c.redirect(`/admin?ok=${encodeURIComponent(`User ${username} and all files deleted`)}`);
 });
 
 // ─── GET /admin/logout ────────────────────────────────────────────────────────
