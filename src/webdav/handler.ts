@@ -117,10 +117,20 @@ async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username:
   xml += renderResponse(reqHref, isDirectory, rootSize, rootLastModified);
 
   if (depth === '1' && isDirectory) {
-    const list = await c.env.STORAGE_R2.list({ prefix, delimiter: '/' });
+    let listOptions: R2ListOptions = { prefix, delimiter: '/' };
+    let listed;
+    const allPrefixes = [];
+    const allObjects = [];
+
+    do {
+      listed = await c.env.STORAGE_R2.list(listOptions);
+      allPrefixes.push(...listed.delimitedPrefixes);
+      allObjects.push(...listed.objects);
+      listOptions.cursor = listed.truncated ? listed.cursor : undefined;
+    } while (listed.truncated);
     
     // Add subdirectories
-    for (const subPrefix of list.delimitedPrefixes) {
+    for (const subPrefix of allPrefixes) {
       const dirName = subPrefix.substring(prefix.length); // e.g. "my folder/"
       const cleanDirName = dirName.endsWith('/') ? dirName.slice(0, -1) : dirName;
       const encodedDirName = encodeURIComponent(cleanDirName) + '/';
@@ -129,7 +139,7 @@ async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username:
     }
 
     // Add files
-    for (const obj of list.objects) {
+    for (const obj of allObjects) {
       if (obj.key === prefix) continue; // skip the folder itself if it exists as an object
       const fileName = obj.key.substring(prefix.length); // e.g. "my file.txt"
       const encodedFileName = encodeURIComponent(fileName);
@@ -143,7 +153,7 @@ async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username:
   return c.body(xml, 207);
 }
 
-export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { username: string } }>) => {
+export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { username: string; uploadedObj?: R2Object } }>) => {
   const method = c.req.method;
   const username = c.get('username');
   let path = c.req.path.replace(/^\/webdav/, '');
@@ -175,11 +185,12 @@ export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { use
 
   if (method === 'PUT') {
     const body = c.req.raw.body;
-    await c.env.STORAGE_R2.put(objectKey, body, {
+    const uploaded = await c.env.STORAGE_R2.put(objectKey, body, {
       httpMetadata: {
         contentType: c.req.header('Content-Type') || 'application/octet-stream'
       }
     });
+    c.set('uploadedObj', uploaded);
     return c.text('Created', 201);
   }
 
@@ -207,14 +218,34 @@ export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { use
 
   if (method === 'DELETE') {
     await c.env.STORAGE_R2.delete(objectKey);
-    const dirPrefix = objectKey.endsWith('/') ? objectKey : objectKey + '/';
-    const list = await c.env.STORAGE_R2.list({ prefix: dirPrefix });
-    const keys = list.objects.map(o => o.key);
-    if (keys.length > 0) {
-      await Promise.all(keys.map(k => c.env.STORAGE_R2.delete(k)));
-    }
-    // Invalidate KV usage cache so the next PUT/dashboard lists and re-seeds it.
+    // Invalidate KV usage cache immediately
     await c.env.USER_KV.delete(`usage:${username}`);
+
+    c.executionCtx.waitUntil((async () => {
+      const dirPrefix = objectKey.endsWith('/') ? objectKey : objectKey + '/';
+      let listOptions: R2ListOptions = { prefix: dirPrefix };
+      let listed;
+      let deletedAny = false;
+
+      do {
+        listed = await c.env.STORAGE_R2.list(listOptions);
+        if (listed.objects.length > 0) {
+          const keys = listed.objects.map(o => o.key);
+          // Delete in chunks of 50 to avoid CF subrequest limits
+          for (let i = 0; i < keys.length; i += 50) {
+            await Promise.all(keys.slice(i, i + 50).map(k => c.env.STORAGE_R2.delete(k)));
+          }
+          deletedAny = true;
+        }
+        listOptions.cursor = listed.truncated ? listed.cursor : undefined;
+      } while (listed.truncated);
+
+      if (deletedAny) {
+        // Re-invalidate in case files were actually deleted
+        await c.env.USER_KV.delete(`usage:${username}`);
+      }
+    })());
+
     return c.text('No Content', 204);
   }
 

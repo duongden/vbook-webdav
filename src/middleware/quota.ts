@@ -2,7 +2,7 @@ import { Context, Next } from 'hono';
 import { Env, UserConfig } from '../types';
 import { sanitizeObjectKey } from '../webdav/handler';
 
-export const quotaMiddleware = async (c: Context<{ Bindings: Env; Variables: { user: UserConfig; username: string } }>, next: Next) => {
+export const quotaMiddleware = async (c: Context<{ Bindings: Env; Variables: { user: UserConfig; username: string; uploadedObj?: R2Object } }>, next: Next) => {
   if (c.req.path.startsWith('/admin')) {
     return next();
   }
@@ -74,7 +74,7 @@ export const quotaMiddleware = async (c: Context<{ Bindings: Env; Variables: { u
   // 4. Post-upload incremental quota update
   // Check if response indicates success (201 Created)
   if (c.res.status === 201) {
-    const uploadedObj = await c.env.STORAGE_R2.head(objectKey);
+    const uploadedObj = c.get('uploadedObj');
     if (uploadedObj) {
       const actualSize = uploadedObj.size;
       const newUsageBytes = Math.max(0, currentUsageBytes + actualSize);

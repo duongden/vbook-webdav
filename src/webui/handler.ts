@@ -8,10 +8,18 @@ export const webuiHandler = async (c: Context<{ Bindings: Env; Variables: { user
 
   // List user files
   const prefix = `${username}/`;
-  const listed = await c.env.STORAGE_R2.list({ prefix });
+  let listOptions: R2ListOptions = { prefix };
+  let listed;
+  const allObjects = [];
+
+  do {
+    listed = await c.env.STORAGE_R2.list(listOptions);
+    allObjects.push(...listed.objects);
+    listOptions.cursor = listed.truncated ? listed.cursor : undefined;
+  } while (listed.truncated);
   
   let currentUsageBytes = 0;
-  const files = listed.objects.filter(obj => !obj.key.endsWith('/')).map(obj => {
+  const files = allObjects.filter(obj => !obj.key.endsWith('/')).map(obj => {
     currentUsageBytes += obj.size;
     return {
       name: obj.key.substring(prefix.length),
@@ -50,7 +58,7 @@ export const webuiHandler = async (c: Context<{ Bindings: Env; Variables: { user
 
   const page = html`
     <!DOCTYPE html>
-    <html lang="en" class="dark">
+    <html lang="en">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -58,102 +66,125 @@ export const webuiHandler = async (c: Context<{ Bindings: Env; Variables: { user
       <script src="https://cdn.tailwindcss.com"></script>
       <script>
         tailwind.config = {
-          darkMode: 'class',
-          theme: {
-            extend: {
-              colors: {
-                crimson: '#e11d48',
-              }
-            }
-          }
+          theme: { extend: { colors: { base: '#fbfbfb', primary: '#fae87a', secondary: '#fcf6c6', info: '#80c6f9', danger: '#e43b12' } } }
         }
       </script>
       <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        body { font-family: system-ui, sans-serif; background-color: #fbfbfb; color: #333;
+          background-image: linear-gradient(rgba(128,198,249,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(128,198,249,0.15) 1px, transparent 1px); background-size: 24px 24px; }
+        .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(250,232,122,0.6); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); }
+        .file-card { background: #ffffff; border: 1px solid #e2e8f0; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .file-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #80c6f9; }
+        
+        #toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 24px; border-radius: 12px;
+                 font-size: 0.875rem; font-weight: 600; opacity: 0; transform: translateY(12px); color: #fff;
+                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none; z-index: 999; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        #toast.show { opacity: 1; transform: translateY(0); }
+        .toast-success { background: #10b981; }
+        .toast-error { background: #e43b12; }
       </style>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     </head>
     <body class="min-h-screen p-4 md:p-8">
-      <div class="max-w-4xl mx-auto">
-        <header class="flex justify-between items-center mb-8 glass p-6 rounded-2xl shadow-xl">
-          <div>
-            <h1 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-crimson to-pink-500">
-              Vân Du
+      <div id="toast"></div>
+
+      <div class="max-w-4xl mx-auto space-y-6">
+        <header class="flex flex-col sm:flex-row justify-between items-center glass p-6 rounded-2xl relative overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-r from-primary/20 to-transparent pointer-events-none"></div>
+          <div class="relative z-10 text-center sm:text-left mb-4 sm:mb-0">
+            <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2 justify-center sm:justify-start">
+              <span class="text-3xl">☁️</span> Vbook WebDAV Cloud
             </h1>
-            <p class="text-slate-400 text-sm mt-1">Welcome back, <span class="text-white font-medium">${username}</span></p>
+            <p class="text-slate-500 text-sm mt-1">Logged in as <span class="font-bold text-slate-700">${username}</span></p>
           </div>
-          <div class="text-right">
-            <div class="text-sm text-slate-400 mb-1">Storage Usage</div>
+          <div class="relative z-10 w-full sm:w-auto bg-white/60 p-4 rounded-xl border border-secondary">
+            <div class="text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wider">Storage Usage</div>
             <div class="flex items-center gap-3">
-              <div class="w-32 h-2 bg-slate-700 rounded-full overflow-hidden">
-                <div class="h-full bg-crimson" style="width: ${usagePercent}%"></div>
+              <div class="w-full sm:w-32 h-2 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                <div class="h-full bg-info" style="width: ${usagePercent}%"></div>
               </div>
-              <span class="text-xs font-mono">${formatBytes(currentUsageBytes)} / ${formatBytes(quotaBytes)}</span>
+              <span class="text-sm font-bold text-slate-700 whitespace-nowrap">${formatBytes(currentUsageBytes)} / ${formatBytes(quotaBytes)}</span>
             </div>
           </div>
         </header>
 
-        <main class="glass rounded-2xl shadow-xl overflow-hidden">
-          <div class="p-6 border-b border-slate-700/50 flex justify-between items-center">
-            <h2 class="font-semibold text-lg">My Files</h2>
-            <button onclick="location.reload()" class="text-sm px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600">
+        <main class="glass rounded-2xl p-6">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="font-bold text-lg text-slate-800">My Files</h2>
+            <button onclick="location.reload()" class="flex items-center gap-2 text-sm px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-all border border-slate-200 shadow-sm">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
               Refresh
             </button>
           </div>
           
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
-              <thead>
-                <tr class="bg-slate-800/50 text-slate-400 text-sm">
-                  <th class="p-4 font-medium">File Name</th>
-                  <th class="p-4 font-medium">Size</th>
-                  <th class="p-4 font-medium">Uploaded At</th>
-                  <th class="p-4 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-700/50">
-                ${files.length === 0 ? html`
-                  <tr>
-                    <td colspan="4" class="p-8 text-center text-slate-500">
-                      No files found. Try uploading via VBook or WebDAV client.
-                    </td>
-                  </tr>
-                ` : files.map(f => html`
-                  <tr class="hover:bg-slate-800/30 transition-colors">
-                    <td class="p-4 font-medium flex items-center gap-3">
-                      <svg class="w-5 h-5 text-crimson" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                      ${escapeHtml(f.name)}
-                    </td>
-                    <td class="p-4 text-sm text-slate-400">${formatBytes(f.size)}</td>
-                    <td class="p-4 text-sm text-slate-400">${escapeHtml(f.date)}</td>
-                    <td class="p-4 text-right">
-                      <a href="/webdav/${encodePath(f.name)}" target="_blank" class="inline-block px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded transition-colors mr-2">Download</a>
-                      <button onclick="deleteFile(this.dataset.name)" data-name="${escapeHtml(f.name)}" class="px-3 py-1 bg-crimson/20 text-crimson hover:bg-crimson hover:text-white text-xs rounded transition-colors border border-crimson/30">Delete</button>
-                    </td>
-                  </tr>
-                `)}
-              </tbody>
-            </table>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ${files.length === 0 ? html`
+              <div class="col-span-full py-16 text-center bg-white/50 rounded-xl border border-dashed border-slate-300">
+                <div class="text-4xl mb-3">📭</div>
+                <h3 class="text-slate-700 font-bold text-lg mb-1">No files found</h3>
+                <p class="text-slate-500 text-sm max-w-sm mx-auto">Upload files directly from the VBook or Legado apps using the WebDAV integration.</p>
+              </div>
+            ` : files.map(f => html`
+              <div class="file-card p-4 rounded-xl flex flex-col justify-between" id="file-${escapeHtml(f.name)}">
+                <div class="flex items-start gap-3 mb-4">
+                  <div class="p-2 bg-secondary/50 rounded-lg text-yellow-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <h3 class="font-bold text-slate-800 text-sm truncate" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</h3>
+                    <div class="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                      <span class="font-medium bg-slate-100 px-2 py-0.5 rounded">${formatBytes(f.size)}</span>
+                      <span>${escapeHtml(f.date)}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="flex justify-end gap-2 border-t border-slate-100 pt-3 mt-auto">
+                  <a href="/webdav/${encodePath(f.name)}" target="_blank" 
+                    class="px-4 py-1.5 bg-info hover:brightness-95 text-slate-900 font-semibold text-xs rounded-lg transition-all shadow-sm">
+                    Download
+                  </a>
+                  <button onclick="deleteFile(this.dataset.name)" data-name="${escapeHtml(f.name)}" 
+                    class="px-4 py-1.5 bg-white text-danger hover:bg-red-50 font-semibold text-xs rounded-lg transition-all border border-danger/30">
+                    Delete
+                  </button>
+                </div>
+              </div>
+            `)}
           </div>
         </main>
       </div>
 
       <script>
+        function showToast(msg, type) {
+          const t = document.getElementById('toast');
+          t.textContent = msg;
+          t.className = 'toast-' + type;
+          t.classList.add('show');
+          setTimeout(() => t.classList.remove('show'), 3000);
+        }
+
         function encodePath(path) {
           return path.split('/').map(encodeURIComponent).join('/');
         }
+
         async function deleteFile(name) {
-          if (!confirm('Are you sure you want to delete ' + name + '?')) return;
+          if (!confirm('Are you sure you want to delete "' + name + '"?')) return;
           try {
             const res = await fetch('/webdav/' + encodePath(name), { method: 'DELETE' });
             if (res.ok) {
-              window.location.reload();
+              const card = document.getElementById('file-' + name);
+              if (card) {
+                card.style.transform = 'scale(0.95)';
+                card.style.opacity = '0';
+                setTimeout(() => card.remove(), 200);
+              }
+              showToast('File deleted successfully', 'success');
+              setTimeout(() => window.location.reload(), 1500);
             } else {
-              alert('Failed to delete file.');
+              showToast('Failed to delete file', 'error');
             }
           } catch (e) {
-            alert('Error deleting file.');
+            showToast('Error connecting to server', 'error');
           }
         }
       </script>

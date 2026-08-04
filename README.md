@@ -23,9 +23,9 @@ Dự án được tối ưu hóa đặc biệt cho nhu cầu đồng bộ, sao l
 *   **🔤 Hỗ trợ hoàn hảo Ký tự đặc biệt & Khoảng trắng:** 
     *   Đường dẫn được chuẩn hóa, giải mã thông minh (`decodeURIComponent`) ngăn chặn tấn công Path Traversal.
     *   Tự động mã hóa URL (`encodeURIComponent`) các thư mục và file con khi sinh thẻ `<D:href>` XML, giúp mọi hệ điều hành (Windows Explorer, macOS Finder) hiển thị đúng tên file có khoảng trắng và dấu Tiếng Việt.
-*   **📁 Xóa thư mục thông minh:** Lệnh `DELETE` thư mục tự động quét sạch mọi file con bên trong kể cả khi WebDAV client gửi đường dẫn không có dấu gạch chéo `/` ở cuối.
-*   **🔑 Secret Admin Dashboard:** Giao diện quản trị ẩn sang trọng chỉ truy cập bằng mã PIN bảo mật, hỗ trợ Thêm/Sửa (hỗ trợ update/keep password)/Xoá User và set Quota trực tiếp ngay trên điện thoại di động mà không cần dùng lệnh CLI.
-*   **🌐 Fake Cloud Drive UI:** Tự động nhận diện truy cập từ trình duyệt để hiển thị giao diện Quản lý File tĩnh cực sang trọng với Dark Mode, hỗ trợ tải xuống trực tiếp và xóa file ngay trên giao diện web.
+*   **📂 Xử lý Thư mục Khổng lồ (Enterprise Scale):** Hệ thống tích hợp xử lý phân trang (Pagination) thông minh trên Cloudflare R2, phá vỡ rào cản 1000 files mặc định, giúp đồng bộ an toàn hàng chục nghìn tệp tin. Thao tác xóa thư mục cũng đệ quy làm sạch triệt để mọi file con.
+*   **🔑 Secret Admin Dashboard:** Giao diện quản trị ẩn sang trọng chỉ truy cập bằng mã PIN bảo mật, hỗ trợ Thêm/Sửa/Xoá User và thiết lập Quota trực tiếp ngay trên trình duyệt di động.
+*   **🌐 Modern Cloud Drive UI:** Tự động nhận diện truy cập từ trình duyệt để hiển thị giao diện Quản lý File tĩnh cực kỳ hiện đại với Card Layout, Toast Notifications mượt mà, hỗ trợ tải xuống và xóa file trực quan.
 
 ---
 
@@ -43,6 +43,7 @@ Tải dự án về máy tính của bạn:
 git clone https://github.com/kychitoge/vbook-webdav.git
 cd vbook-webdav
 npm install
+#hoặc pnpm install
 ```
 
 ### 3. Cấu hình Biến môi trường
@@ -73,7 +74,8 @@ npm install
 ### 4. Deploy lên Cloudflare
 Triển khai hệ thống lên mây chỉ với 1 lệnh duy nhất:
 ```bash
-npx wrangler deploy
+npx run deploy
+# hoặc dùng pnpm run deploy
 ```
 
 ---
