@@ -1,272 +1,132 @@
 # VBook WebDAV Cloud
 
-Kho backup cá nhân cho VBook, Legado và ứng dụng hỗ trợ WebDAV. File lưu trên Cloudflare R2; bạn quản lý bằng trình duyệt hoặc ứng dụng đang dùng.
+Lưu và quản lý bản sao lưu từ VBook, Legado hoặc ứng dụng hỗ trợ WebDAV. Bạn có thể tìm, tải về và xóa backup bằng trình duyệt trên máy tính hoặc điện thoại.
 
-**Có sẵn:** tài khoản riêng, giới hạn dung lượng, lịch sử backup theo ngày giờ, tìm kiếm, phân trang và giao diện responsive.
+## 1. Kết nối ứng dụng
 
-> Các URL, tên tài nguyên và thông tin cấu hình trong tài liệu là **giá trị mẫu**. Không đưa mật khẩu, API token, khóa mã hóa hoặc cấu hình riêng lên GitHub.
+Bạn cần **địa chỉ WebDAV, tên tài khoản và mật khẩu** do người quản trị cung cấp.
 
-## Bắt đầu từ đâu?
+Mở phần sao lưu WebDAV trong ứng dụng và điền:
 
-| Bạn muốn… | Đọc phần |
+| Ô trong ứng dụng | Cách điền |
 | --- | --- |
-| Kết nối app và backup | [Sử dụng WebDAV](#sử-dụng-webdav) |
-| Tải lại hoặc xóa bản cũ | [Quản lý backup trên web](#quản-lý-backup-trên-web) |
-| Tạo tài khoản, chỉnh giới hạn | [Dành cho admin](#dành-cho-admin) |
-| Tự triển khai server | [Cài đặt lần đầu](#cài-đặt-lần-đầu) |
-| Cập nhật bản mới | [Deploy qua GitHub](#deploy-qua-github) hoặc [Deploy qua terminal](#deploy-qua-terminal) |
-| Backup báo lỗi | [Xử lý lỗi thường gặp](#xử-lý-lỗi-thường-gặp) |
+| Server / URL | Dán nguyên địa chỉ WebDAV được cung cấp |
+| Username | Tên tài khoản của bạn |
+| Password | Mật khẩu tài khoản |
+| Thư mục backup, nếu có | Ví dụ: `vbook_backup` |
 
-## Sử dụng WebDAV
+Sau đó:
 
-Nhờ admin cung cấp **URL server, username và password**. Trong cài đặt backup WebDAV của app, nhập:
+1. Bấm **Kiểm tra kết nối**, nếu ứng dụng có nút này.
+2. Chọn **Sao lưu / Backup** và chờ hoàn tất.
+3. Mở địa chỉ WebDAV trong trình duyệt, đăng nhập cùng tài khoản để xem file.
 
-| Ô trong app | Giá trị mẫu |
+Tên menu có thể khác giữa các ứng dụng. Mật khẩu tài khoản dùng để backup khác với mã đăng nhập của người quản trị.
+
+## 2. Xem và tìm backup
+
+Trên máy tính, thanh bên trái chứa bộ lọc và thông tin dung lượng. Khu vực bên phải hiển thị danh sách file. Trên điện thoại, bộ lọc nằm phía trên danh sách.
+
+| Bạn muốn | Thao tác |
 | --- | --- |
-| Server / URL | `https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/` |
-| Username | Tài khoản do admin tạo |
-| Password | Mật khẩu của tài khoản đó |
-| Thư mục backup, nếu app có ô riêng | `vbook_backup` |
+| Xem toàn bộ file | Chọn **Tất cả** |
+| Xem các file đang được ứng dụng sử dụng | Chọn **Bản hiện tại** |
+| Xem những phiên bản cũ được giữ lại | Chọn **Lịch sử** |
+| Tìm một file | Nhập tên file hoặc thư mục vào ô tìm kiếm; có thể gõ không dấu |
+| Xem bản mới nhất trước | Chọn **Mới nhất trước** trong ô sắp xếp |
+| Tìm file chiếm nhiều dung lượng | Chọn **Dung lượng lớn nhất** |
+| Xem thêm file | Dùng mũi tên chuyển trang ở cuối danh sách; mỗi trang tối đa 20 file |
+| Cập nhật danh sách sau khi backup | Bấm **Làm mới** |
 
-1. Dùng **Kiểm tra kết nối** nếu app có hỗ trợ.
-2. Chạy backup lần đầu.
-3. Mở URL server bằng trình duyệt, đăng nhập cùng tài khoản và kiểm tra file đã xuất hiện.
+Ngày giờ được hiển thị theo giờ Việt Nam.
 
-Server cũng hỗ trợ URL kết thúc bằng `/webdav/`. Không nhập `ADMIN_PIN` vào ô password của app: mã này chỉ dùng cho trang quản trị. Tên và vị trí menu backup phụ thuộc từng app.
+## 3. Tải về và khôi phục
 
-## Quản lý backup trên web
+1. Chọn **Bản hiện tại** hoặc **Lịch sử**.
+2. Kiểm tra tên file và ngày giờ của bản muốn lấy.
+3. Bấm **Tải về**.
+4. Trong ứng dụng, mở chức năng **Khôi phục / Nhập bản sao lưu** và chọn file vừa tải.
 
-Trên máy tính:
+Tải file về không tự khôi phục dữ liệu trong ứng dụng. Bạn cần thực hiện bước khôi phục trong chính ứng dụng đó.
 
-```text
-┌──────────────────────┬────────────────────────────────────┐
-│ SIDEBAR              │ NỘI DUNG CHÍNH                     │
-│ Tất cả               │ Tệp của tôi           [Làm mới]    │
-│ Bản hiện tại         │ [Tìm tên / thư mục] [Sắp xếp]      │
-│ Lịch sử              │                                    │
-│                      │ Tên · Dung lượng · Ngày giờ        │
-│ Dung lượng đã dùng   │ backup.zip       [Tải về] [Xóa]    │
-│ Tổng số tệp          │                                    │
-│ Tệp mới nhất         │ 1–20 / 45 tệp          [←] 1/3 [→] │
-└──────────────────────┴────────────────────────────────────┘
-```
+## 4. Hiểu về lịch sử backup
 
-Trên điện thoại, sidebar chuyển thành vùng điều hướng phía trên danh sách.
+Khi ứng dụng gửi bản mới vào cùng tên file và thư mục, hệ thống giữ bản trước trong **Lịch sử**.
 
-| Thao tác | Cách dùng |
-| --- | --- |
-| Chỉ xem file đang dùng | Chọn **Bản hiện tại** |
-| Xem các bản server giữ lại | Chọn **Lịch sử** |
-| Tìm một backup | Nhập tên file hoặc thư mục; tìm kiếm hỗ trợ bỏ dấu tiếng Việt |
-| Đổi thứ tự | Chọn mới nhất, tên hoặc dung lượng |
-| Xem thêm | Dùng nút chuyển trang; mỗi trang tối đa 20 tệp |
-| Tải về | Bấm **Tải về** cạnh bản cần lấy |
-| Xóa bản không cần | Bấm **Xóa**, kiểm tra tên rồi xác nhận |
-| App vừa backup xong | Bấm **Làm mới** |
-
-Nếu kết quả xóa chưa rõ, giao diện giữ file và hiện **Kiểm tra lại**. Nút này xác nhận trạng thái, không gửi thêm lệnh xóa.
-
-### Lịch sử ngày giờ hoạt động thế nào?
-
-Khi app ghi đè **cùng đường dẫn**, server giữ bản trước trong `backup-history`, rồi cập nhật file hiện tại. Ví dụ:
-
-```text
-vbook_backup/backup.zip                  ← bản hiện tại
-backup-history/
-  2026-01-02_14-30-00-000_UTC+7_<id>/
-    vbook_backup/backup.zip              ← bản trước khi ghi đè
-```
-
-- Ngày giờ trong tên lịch sử là **lúc lưu bản cũ**, theo giờ Việt Nam (GMT+7). Mã riêng tránh trùng tên.
-- Lần upload đầu chỉ tạo file hiện tại. Nếu app tự tạo tên mới mỗi lần, các file đó vẫn thuộc **Bản hiện tại**, vì server chưa thực hiện lưu phiên bản cũ.
-- **Không tự xóa lịch sử.** Bạn chủ động xóa trên web khi không cần nữa.
-- Tổng quota tính cả file hiện tại và lịch sử. Mỗi bản là bản đầy đủ, không phải phần chênh lệch và không được nén thêm.
-- Không upload trực tiếp vào `backup-history`: thư mục này dành cho server. Bạn vẫn được tải và xóa các bản trong đó.
-- Xóa một file hiện tại không xóa lịch sử ở thư mục riêng. Xóa toàn bộ tài khoản hoặc toàn bộ cây thư mục gốc có thể xóa cả lịch sử.
-
-**Khôi phục:** tải bản cần dùng trong **Lịch sử**, rồi chọn chức năng nhập/khôi phục backup của app. Web hiện chưa có nút tự thay bản hiện tại bằng bản lịch sử.
-
-## Dành cho admin
-
-Mở `https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/admin`, đăng nhập bằng `ADMIN_PIN`.
-
-1. Tạo tài khoản bằng username, password, quota và giới hạn file.
-2. Gửi thông tin kết nối cho người sử dụng bằng kênh riêng.
-3. Trong **Thao tác**, chọn sửa thông tin, tạm khóa/mở khóa hoặc xóa tài khoản.
-
-| Trường | Ý nghĩa |
-| --- | --- |
-| Quota | Tổng dung lượng cho tài khoản, **bao gồm lịch sử** |
-| Max File | Dung lượng tối đa của mỗi lần upload |
-| Password khi sửa | Để trống nếu muốn giữ mật khẩu hiện tại |
-
-Giao diện nhập và hiển thị theo **MB/GB thập phân**: 1 MB = 1.000.000 byte; 1 GB = 1.000 MB. Ví dụ backup 76,5 MB có thể đặt Max File là `95`; quota cần đủ cho số bản muốn giữ. Server giới hạn mỗi upload ở **100 MB**, dù đặt Max File cao hơn. Tài khoản cũ giữ nguyên dung lượng thực tế khi nâng cấp; chỉ đổi cách hiển thị sang MB (ví dụ 500 MiB cũ hiển thị 524,288 MB).
-
-### Xem lại mật khẩu
-
-Tính năng tùy chọn dành cho admin:
-
-1. Tạo khóa riêng trên máy bằng `openssl rand -hex 32`.
-2. Trong Worker → **Settings → Variables and Secrets**, thêm loại **Secret**, tên `PASSWORD_VAULT_KEY`, giá trị là khóa vừa tạo.
-3. Lưu khóa riêng an toàn và giữ nguyên qua các lần deploy.
-4. Tài khoản cũ cần nhập lại mật khẩu trong **Sửa thông tin** một lần; có thể dùng lại mật khẩu cũ.
-5. Bấm **Mật khẩu** để xem hoặc sao chép. Hộp tự đóng sau 30 giây.
-
-Mật khẩu cũ chỉ có hash không thể đọc ngược. Khi cấu hình khóa, server lưu thêm bản mã hóa AES-256-GCM. Đổi hoặc mất khóa khiến bản mã hóa cũ không đọc được; kiểm tra đăng nhập bằng hash vẫn hoạt động. Khi chưa cấu hình khóa, tạo/đổi mật khẩu vẫn hoạt động nhưng chưa xem lại được. Người có quyền admin có thể đọc mật khẩu đã lưu theo cách này.
-
-## Cài đặt lần đầu
-
-Chuẩn bị Node.js 22 trở lên, tài khoản Cloudflare, một bucket R2 và một namespace KV. Hạn mức và chi phí phụ thuộc tài khoản Cloudflare; không cam kết mọi mức sử dụng đều miễn phí.
-
-```sh
-git clone https://github.com/duongden/vbook-webdav.git
-cd vbook-webdav
-npm ci
-cp config/wrangler.example.jsonc wrangler.jsonc
-```
-
-Chỉnh **file local `wrangler.jsonc`** theo tài khoản của bạn:
-
-| Cấu hình | Điền gì? |
-| --- | --- |
-| `name` | Tên Worker muốn triển khai |
-| `USER_KV` → `id` | ID namespace KV của bạn |
-| `STORAGE_R2` → `bucket_name` | Tên bucket R2 của bạn |
-| `USER_STORAGE` và `migrations` | Giữ như mẫu khi cài mới |
-
-File này đã được Git bỏ qua. **Không dùng `git add -f` để đưa nó lên repo.**
-
-```sh
-npx wrangler login
-npm run check
-npx wrangler deploy --keep-vars --minify
-npx wrangler secret put ADMIN_PIN
-```
-
-Lệnh secret yêu cầu nhập giá trị riêng; không viết giá trị vào lệnh để tránh lưu trong lịch sử terminal. Sau khi đặt `ADMIN_PIN`, mở `/admin` để tạo tài khoản đầu tiên. Nếu muốn xem lại mật khẩu, thêm `PASSWORD_VAULT_KEY` theo hướng dẫn phía trên.
-
-## Deploy qua GitHub
-
-Fork repo vào tài khoản của bạn, rồi kết nối với Worker trong Cloudflare → **Settings → Builds**.
-
-### 1. Điền cấu hình build
-
-| Ô | Giá trị |
-| --- | --- |
-| Production branch | `main` |
-| Build command | `npm run build:cloudflare` |
-| Deploy command | `npx wrangler deploy --keep-vars --minify` |
-| Version command | `npx wrangler versions upload` |
-| Root directory | `/` |
-
-Tắt build nhánh không phải production nếu cấu hình đang dùng tài nguyên production.
-
-### 2. Thêm biến cho build
-
-Trong chính phần **Builds**, tìm **Variables and secrets** bên dưới phần cấu hình/nhánh. Đây là biến dành cho quá trình build.
-
-| Loại | Name | Value |
+| Lần sao lưu | Bản hiện tại | Lịch sử |
 | --- | --- | --- |
-| Variable | `CF_WORKER_NAME` | Tên Worker đã kết nối repo |
-| Secret | `CF_KV_NAMESPACE_ID` | ID namespace đang gắn với `USER_KV` |
-| Secret | `CF_R2_BUCKET_NAME` | Tên bucket đang gắn với `STORAGE_R2` |
+| Lần đầu | Bản đầu tiên | Chưa có |
+| Lần thứ hai, cùng đường dẫn | Bản thứ hai | Giữ bản đầu tiên |
+| Lần thứ ba, cùng đường dẫn | Bản thứ ba | Giữ hai bản trước |
 
-Xem **Bindings** của Worker để xác định đúng KV và R2. Khi cập nhật server hiện có, dùng lại tài nguyên cũ để giữ tài khoản và file.
+- Ngày giờ của bản lịch sử là thời điểm bản đó được chuyển vào lịch sử.
+- Nếu ứng dụng tự tạo tên file khác nhau mỗi lần, các file ấy vẫn nằm trong **Bản hiện tại**.
+- Lịch sử **không tự xóa**. Bạn chủ động chọn những bản không cần giữ nữa.
+- Mỗi bản lưu chiếm dung lượng riêng. Đặt tên theo ngày giờ không làm file nhỏ hơn.
 
-### 3. Giữ secret chạy ứng dụng ở runtime
+## 5. Xóa backup và quản lý dung lượng
 
-| Secret runtime | Bắt buộc? |
+Bấm **Xóa** cạnh file, kiểm tra đúng tên rồi xác nhận. File bị xóa không có thùng rác để khôi phục.
+
+Xóa một bản hiện tại không xóa các phiên bản cũ trong **Lịch sử**. Nếu muốn giải phóng thêm dung lượng, kiểm tra cả hai mục.
+
+Nếu giao diện hiện **Kiểm tra lại**, bấm nút đó để xác nhận kết quả. Nếu đang xử lý, chờ một lúc rồi kiểm tra lại.
+
+| Thông tin dung lượng | Ý nghĩa |
 | --- | --- |
-| `ADMIN_PIN` | Có, để sử dụng admin |
-| `PASSWORD_VAULT_KEY` | Chỉ khi muốn xem lại mật khẩu |
+| Dung lượng đã dùng | Tổng dung lượng file hiện tại và lịch sử |
+| Dung lượng còn trống | Chỗ còn lại để lưu backup tiếp theo |
+| Giới hạn mỗi file | Kích thước tối đa của một bản upload, do admin thiết lập |
 
-Hai secret này nằm trong Worker → **Settings → Variables and Secrets**, không phải biến build. Script build chỉ tạo cấu hình tạm từ ba biến `CF_*`; không đưa khóa hoặc mật khẩu vào source.
+Dung lượng dùng đơn vị **MB và GB**, với **1 GB = 1.000 MB**. Mỗi file upload tối đa **100 MB**, hoặc thấp hơn nếu tài khoản được đặt giới hạn nhỏ hơn.
 
-### 4. Lưu và chạy build
+Ví dụ: một bản backup 75 MB và hai bản lịch sử cùng kích thước sẽ dùng khoảng **225 MB**. Khi hết chỗ, hãy xóa bản không cần hoặc nhờ admin tăng dung lượng.
 
-Bấm **Save**, push commit mới lên `main`, rồi theo dõi build đến khi **Success**. Retry áp dụng cấu hình mới nhưng vẫn build commit được chọn; hãy chọn đúng commit chứa thay đổi cần triển khai.
+## 6. Quản lý tài khoản dành cho admin
 
-Nếu cần kích hoạt một build mới khi code không đổi:
+Mở địa chỉ trang quản trị được cung cấp và đăng nhập bằng mã quản trị.
 
-```sh
-git pull --ff-only
-git commit --allow-empty -m "Trigger deployment"
-git push origin main
-```
+### Tạo hoặc sửa tài khoản
 
-Tham khảo [Cloudflare Builds configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/).
-
-## Deploy qua terminal
-
-Dùng khi đã có cấu hình local đúng và muốn triển khai trực tiếp:
-
-```sh
-git pull --ff-only
-npm ci
-npm run check
-npx wrangler login
-npx wrangler deploy --keep-vars --minify
-```
-
-Trước khi deploy, kiểm tra `name` trong cấu hình trùng Worker của URL đang dùng. Giữ nguyên R2/KV, binding Durable Object và lịch sử migration.
-
-Nếu secret đã đặt trên Dashboard, không khai báo lại `ADMIN_PIN` hoặc `PASSWORD_VAULT_KEY` trong `vars` local. `--keep-vars` giữ biến Dashboard, nhưng giá trị khai báo trong cấu hình vẫn có thể ghi đè biến cùng tên.
-
-Sau deploy, Wrangler in URL và Version ID. Mở web, tải lại trang và kiểm tra các thao tác cần dùng.
-
-## Xử lý lỗi thường gặp
-
-| Hiện tượng | Kiểm tra / xử lý |
+| Trường | Điền gì? |
 | --- | --- |
-| Không đăng nhập được, HTTP 401 | Kiểm tra username/password của app; không dùng mã admin |
-| HTTP 403 | Kiểm tra tài khoản bị khóa, phiên admin/CSRF hết hạn hoặc upload vào thư mục lịch sử |
-| HTTP 413 | File vượt Max File hoặc giới hạn request; tăng Max File nếu file vẫn dưới 100.000.000 byte |
-| HTTP 507 | Quota không đủ giữ bản hiện tại, lịch sử và upload mới; xóa bản không cần hoặc tăng quota |
-| Không tạo được thư mục | Cập nhật server; tạo lại thư mục đã có được hỗ trợ. Kiểm tra tên thư mục có trùng một file không |
-| Xóa trả 503 hoặc đang xử lý | Có thể đang xóa theo lô; chờ rồi kiểm tra lại, không coi đó là thành công ngay |
-| Chưa có bản mật khẩu mã hóa | Cấu hình secret runtime rồi nhập lại mật khẩu tài khoản một lần |
-| Build báo thiếu `CF_*` | Thêm biến trong phần Builds, lưu rồi chạy lại đúng commit |
-| Push xong nhưng giao diện cũ | Kiểm tra repo, nhánh, commit của build và Worker đích; tải lại trình duyệt |
-| HTTP 411 | App upload không gửi Content-Length; cần client gửi độ dài đã biết |
+| Username | Tên tài khoản để đăng nhập trong app và trên web |
+| Password | Mật khẩu tài khoản; khi sửa, để trống nếu muốn giữ mật khẩu cũ |
+| Quota (MB) | Tổng dung lượng được dùng, bao gồm lịch sử |
+| Max File (MB) | Dung lượng tối đa cho một file upload |
 
-Khi chia sẻ log hoặc ảnh để nhờ hỗ trợ, che mật khẩu, token và giá trị secret.
+Bấm **Save User** để tạo tài khoản. Để sửa, mở **Thao tác → Sửa thông tin**, thay đổi các ô cần thiết rồi bấm **Update User**.
 
-## Nâng cấp từ bản cũ
+Ví dụ: với file backup 76,5 MB, có thể đặt **Max File = 95 MB** và chọn quota đủ cho số bản muốn giữ.
 
-- Sao lưu riêng source, cấu hình và dữ liệu R2/KV. Backup source không thay thế backup dữ liệu Cloudflare.
-- Bản dùng counter quota KV cũ cần thêm binding `USER_STORAGE` và migration SQLite `user-storage-v1` theo file mẫu. Nếu đã có migration khác, thêm mục mới, không xóa lịch sử đã triển khai.
-- Không chạy đồng thời bản cũ và mới cùng ghi một bucket. Không cần di chuyển file: cấu trúc vẫn là `username/...`; tài khoản vẫn nằm ở KV `user:username`.
-- Quota được khởi tạo lại từ R2 rồi quản lý bởi Durable Object. Phiên admin cũ có thể cần đăng nhập lại.
+### Các thao tác khác
 
-## Phạm vi và kiểm thử
+| Thao tác | Kết quả |
+| --- | --- |
+| **Mật khẩu** | Xem hoặc sao chép mật khẩu nếu tính năng đã được bật; cửa sổ tự đóng sau 30 giây |
+| **Thao tác → Tạm khóa** | Ngăn tài khoản tiếp tục sử dụng WebDAV |
+| **Thao tác → Mở khóa** | Cho phép tài khoản sử dụng lại |
+| **Thao tác → Xóa tài khoản** | Xóa tài khoản cùng toàn bộ file và lịch sử |
 
-- Hỗ trợ `OPTIONS`, `GET`, `HEAD`, `PUT`, `DELETE`, `MKCOL`, `PROPFIND` Depth 0/1; chưa hỗ trợ `MOVE`, `COPY`, `LOCK`, `UNLOCK` hay đầy đủ mọi yêu cầu WebDAV.
-- R2 lưu file; KV lưu tài khoản; mỗi user có một SQLite Durable Object tuần tự hóa ghi/xóa và quản lý quota.
-- KV có eventual consistency: đổi mật khẩu/khóa tài khoản có thể mất thời gian để xuất hiện ở mọi vùng.
-- Mật khẩu đăng nhập dùng PBKDF2 1.000 vòng theo cơ chế tương thích cũ, còn yếu trước tấn công offline; bảo vệ quyền truy cập KV và dùng mật khẩu dài, duy nhất.
-- Lịch sử được sao chép trước khi thay file hiện tại. Upload lỗi giữ bản cũ; một lần ngắt tiến trình đột ngột có thể để lại bản lịch sử thừa, được tính lại vào quota.
-- Phân trang UI chạy trên danh sách đã tải về, chưa giảm tổng metadata đọc từ R2. Không chỉnh/xóa trực tiếp R2 ngoài ứng dụng khi quota đã được khởi tạo nếu chưa có bước đối soát.
-- CSS nội bộ dùng theme chung tại `src/webui/theme.ts`; không tải Tailwind CDN.
+Nếu chưa xem được mật khẩu, nhờ người thiết lập hệ thống bật tính năng này. Sau khi được bật, nhập lại mật khẩu trong **Sửa thông tin** một lần; có thể dùng lại mật khẩu hiện tại.
 
-```sh
-npm run check     # TypeScript và test backend cục bộ
-npm run test:ui   # Chrome/Chromium: responsive, tìm kiếm, lọc, phân trang, xóa
-npm run dev      # Chạy local; dùng .dev.vars cho secret local
-```
+## 7. Khi gặp lỗi
 
-Test UI dùng Chrome có sẵn trên macOS; môi trường khác có thể chạy `npx playwright install chromium` hoặc đặt `VBOOK_TEST_CHROME`. Test sử dụng dữ liệu giả và tài nguyên local. Cookie admin có Secure nên kiểm thử admin local cần HTTPS hoặc môi trường test thích hợp.
+| Thông báo / hiện tượng | Bạn nên làm gì? |
+| --- | --- |
+| Không đăng nhập được / lỗi 401 | Kiểm tra địa chỉ, tên tài khoản và mật khẩu; không dùng mã admin để backup |
+| Không có quyền / lỗi 403 | Nhờ admin kiểm tra tài khoản có bị khóa không; nếu ở trang admin, thử đăng nhập lại |
+| File quá lớn / lỗi 413 | Kiểm tra dung lượng file và giới hạn mỗi file của tài khoản; file trên 100 MB cần giảm dung lượng từ ứng dụng |
+| Hết dung lượng / lỗi 507 | Xóa bớt lịch sử hoặc nhờ admin tăng quota |
+| Không thể tạo thư mục backup | Kiểm tra có file trùng tên thư mục không; nếu vẫn lỗi, gửi thông báo cho admin |
+| Đang xử lý / lỗi 503 khi xóa | Chờ một lúc, sau đó dùng **Kiểm tra lại** hoặc **Làm mới** |
+| Backup xong nhưng chưa thấy file | Bấm **Làm mới**, chọn **Tất cả** và xóa nội dung ô tìm kiếm |
+| Giao diện vẫn giống bản cũ | Tải lại trang hoặc đóng rồi mở lại trình duyệt |
 
-## Những gì không được đưa lên repo public
+Khi nhờ hỗ trợ, gửi tên ứng dụng và nội dung lỗi. Không gửi mật khẩu; che mật khẩu nếu xuất hiện trong ảnh.
 
-`wrangler.jsonc`, `wrangler.toml`, `.env`, `.dev.vars`, `.wrangler/`, `.local-backups/`, API token, khóa mã hóa và bản backup dữ liệu riêng.
+---
 
-Giữ file mẫu công khai `config/wrangler.example.jsonc` với placeholder. Không cấu hình static assets trỏ vào thư mục gốc hoặc thư mục backup. Không đính kèm cấu hình riêng trong artifact, issue hay ảnh README.
-
-## Tài liệu tham khảo
-
-- [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
-- [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
-- [Durable Objects](https://developers.cloudflare.com/durable-objects/)
-- [KV consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/)
+Bạn muốn tự cài đặt hoặc cập nhật server? Xem [hướng dẫn dành cho người triển khai](docs/DEPLOYMENT.md).
 
 Giấy phép MIT — xem [LICENSE](LICENSE).
