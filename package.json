@@ -2,6 +2,7 @@
   "name": "vbook-webdav",
   "type": "module",
   "scripts": {
+    "build:cloudflare": "node scripts/configure-cloudflare.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",

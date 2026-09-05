@@ -40,6 +40,33 @@ npm run dev
 npm run deploy
 ```
 
+## Deploy qua Cloudflare Workers Builds
+
+Không commit `wrangler.jsonc`. Script tạo file bị Git bỏ qua ngay trong môi trường build, từ mẫu công khai và biến riêng trên Cloudflare. Script không ghi đè cấu hình local đã tồn tại và không sao chép secret vào file sinh ra.
+
+Trong Worker → Settings → Builds, kết nối repo và chọn production branch `main`:
+
+| Ô cấu hình | Giá trị |
+| --- | --- |
+| Build command | `npm run build:cloudflare` |
+| Deploy command | `npx wrangler deploy --keep-vars --minify` |
+| Version command | `npx wrangler versions upload` |
+| Root directory | `/` |
+
+Thêm vào **Build Variables and Secrets**:
+
+| Biến | Giá trị |
+| --- | --- |
+| `CF_WORKER_NAME` | Tên Worker hiện tại, đúng với Worker đã kết nối repo |
+| `CF_KV_NAMESPACE_ID` | ID namespace KV đang gắn với `USER_KV` |
+| `CF_R2_BUCKET_NAME` | Tên bucket R2 đang gắn với `STORAGE_R2` |
+
+Dùng lại KV và R2 hiện có để giữ tài khoản và file. `ADMIN_PIN` giữ tại **Settings → Variables and Secrets** của Worker (runtime), không đưa vào Git hoặc biến build. Cấu hình sinh ra giữ runtime vars trên Dashboard và thêm binding/migration `USER_STORAGE` từ mẫu.
+
+Lưu cấu hình rồi retry build chứa script này; các push tiếp theo vào `main` sẽ tự build/deploy. Nếu build cũ thuộc commit chưa có script, cần build commit mới nhất. Chỉ bật build production khi dùng các binding production này.
+
+Tham khảo [Cloudflare Builds configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/).
+
 ## Nâng cấp từ phiên bản KV quota cũ
 
 1. Sao lưu source, `wrangler.jsonc`, các secret local và dữ liệu R2/KV riêng trước khi triển khai. Backup source không thay thế backup dữ liệu Cloudflare.
