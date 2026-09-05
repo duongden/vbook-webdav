@@ -5,6 +5,7 @@ import { getUsage, storageRequest } from '../storage/client';
 import { validUsername } from '../utils/path';
 import { getCookie, setCookie } from 'hono/cookie';
 import { hashPassword, generateSalt } from '../utils/crypto';
+import { encryptPassword, decryptPassword } from '../utils/password-vault';
 
 export const adminApp = new Hono<AppEnv>();
 
@@ -225,6 +226,11 @@ adminApp.get('/', async (c) => {
       <script src="https://cdn.tailwindcss.com"></script>
       <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
       <style>
+        dialog { border: 1px solid #cbd5e1; border-radius: 14px; padding: 24px; width: min(420px, 90vw); margin: auto; }
+        dialog::backdrop { background: #0f172a80; }
+        dialog p { font-weight: 600; margin-bottom: 12px; }
+        dialog input { width: 100%; padding: 10px; border-radius: 6px; }
+        dialog button { display: block; margin: 16px 0 0 auto; padding: 8px 18px; border-radius: 6px; background: #fae87a; }
         body { font-family: system-ui, sans-serif; background-color: #fbfbfb; color: #333;
           background-image: radial-gradient(rgba(128,198,249,0.2) 1px, transparent 1px); background-size: 20px 20px; }
         .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(250,232,122,0.6); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
@@ -378,6 +384,7 @@ adminApp.get('/', async (c) => {
                         <td class="px-4 py-4 text-right">
                           <div class="flex items-center justify-end gap-2">
                             <!-- Edit -->
+                            <button type="button" class="btn btn-edit" data-username="${u.username}" onclick="viewPassword(this)">Xem mật khẩu</button>
                             <button type="button" class="btn btn-edit shadow-sm"
                               onclick="editUser(${JSON.stringify(u.username)}, ${u.quota_mb}, ${u.max_file_size_mb}, '${u.status}')">
                               ✏️ Edit
@@ -413,6 +420,33 @@ adminApp.get('/', async (c) => {
       </div>
 
       <script>
+        async function viewPassword(button) {
+          button.disabled = true;
+          try {
+            const response = await fetch('/admin/password', {
+              method: 'POST', redirect: 'error',
+              body: new URLSearchParams({ username: button.dataset.username, _csrf: document.querySelector('#user-form input[name="_csrf"]').value })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Không xem được mật khẩu');
+            const dialog = document.createElement('dialog');
+            const label = document.createElement('p');
+            label.textContent = 'Mật khẩu của ' + button.dataset.username;
+            const field = document.createElement('input');
+            field.readOnly = true;
+            field.value = result.password;
+            field.setAttribute('aria-label', 'Mật khẩu');
+            const close = document.createElement('button');
+            close.textContent = 'Đóng';
+            close.onclick = () => dialog.close();
+            dialog.append(label, field, close);
+            document.body.append(dialog);
+            const timer = setTimeout(() => dialog.close(), 30000);
+            dialog.addEventListener('close', () => { clearTimeout(timer); field.value = ''; dialog.remove(); }, { once: true });
+            dialog.showModal();
+          } catch (error) { showToast(error.message || 'Không xem được mật khẩu', 'error'); }
+          finally { button.disabled = false; }
+        }
         function showToast(msg, type) {
           const t = document.getElementById('toast');
           // Replace literal '+' with spaces for nicer display if generated from BE
@@ -505,8 +539,15 @@ adminApp.post('/user', async (c) => {
 
   let passwordHash = existing?.password_hash ?? '';
   let salt         = existing?.salt;
+  let encrypted = existing?.password_encrypted;
 
   if (password) {
+    // Without a configured vault, preserve legacy hash-only operation; never retain stale ciphertext.
+    encrypted = undefined;
+    if (c.env.PASSWORD_VAULT_KEY) {
+      try { encrypted = await encryptPassword(c.env.PASSWORD_VAULT_KEY, username, password); }
+      catch { return c.text('Password vault key is invalid; user was not changed', 503); }
+    }
     // New password provided — re-hash
     salt = generateSalt();
     passwordHash = await hashPassword(password, salt);
@@ -514,6 +555,7 @@ adminApp.post('/user', async (c) => {
 
   const config: UserConfig = {
     password_hash: passwordHash,
+    ...(encrypted ? { password_encrypted: encrypted } : {}),
     ...(salt ? { salt } : {}),
     quota_mb: quota,
     max_file_size_mb: maxSize,
@@ -527,6 +569,21 @@ adminApp.post('/user', async (c) => {
   await c.env.USER_KV.put(`user:${username}`, JSON.stringify(config));
   const msg = mode === 'create' ? `User ${username} created` : `User ${username} updated`;
   return c.redirect(`/admin?ok=${encodeURIComponent(msg)}`);
+});
+
+adminApp.post('/password', async (c) => {
+  if (!await validateCsrf(c)) return c.json({ error: 'Phiên không hợp lệ. Hãy đăng nhập lại.' }, 403);
+  const body = await getParsedBody(c);
+  const username = typeof body.username === 'string' ? body.username : '';
+  if (!validUsername(username)) return c.json({ error: 'Tên tài khoản không hợp lệ.' }, 400);
+  const user = await c.env.USER_KV.get<UserConfig>(`user:${username}`, 'json');
+  if (!user) return c.json({ error: 'Không tìm thấy tài khoản.' }, 404);
+  if (!user.password_encrypted) return c.json({ error: 'Chưa có bản mã hóa. Cấu hình PASSWORD_VAULT_KEY rồi đặt lại mật khẩu một lần.' }, 409);
+  if (!c.env.PASSWORD_VAULT_KEY) return c.json({ error: 'Chưa cấu hình PASSWORD_VAULT_KEY trên Cloudflare.' }, 503);
+  try {
+    const password = await decryptPassword(c.env.PASSWORD_VAULT_KEY, username, user.password_encrypted);
+    return c.json({ password });
+  } catch { return c.json({ error: 'Không giải mã được. Kiểm tra khóa hoặc đặt lại mật khẩu.' }, 503); }
 });
 
 // ─── POST /admin/suspend — Toggle active/suspended ────────────────────────────

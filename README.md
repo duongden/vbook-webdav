@@ -132,3 +132,12 @@ Khi xóa, nút được khóa trong lúc xử lý và có hộp xác nhận trư
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 
 Giấy phép MIT, xem [LICENSE](LICENSE).
+
+
+## Xem mật khẩu trong admin
+
+Tạo khóa ngẫu nhiên bằng `openssl rand -hex 32`, lưu riêng an toàn, rồi thêm **Secret runtime** tên `PASSWORD_VAULT_KEY` trong Worker → Settings → Variables and Secrets. Không đưa khóa vào Git, biến build hoặc log. Dùng cùng khóa qua các lần deploy; thay/mất khóa khiến bản mã hóa cũ không đọc được (đăng nhập bằng hash vẫn hoạt động).
+
+Sau khi cấu hình khóa, mật khẩu khi tạo/sửa tài khoản được lưu thêm bằng AES-256-GCM với nonce ngẫu nhiên và ràng buộc username. Admin chọn **Xem mật khẩu**; hộp tự đóng sau 30 giây. API yêu cầu phiên admin và CSRF, không cache; HTML danh sách không chứa mật khẩu hoặc bản mã hóa.
+
+Tài khoản cũ chỉ có hash cần đặt lại mật khẩu một lần; không thể khôi phục mật khẩu từ hash. Nếu chưa cấu hình khóa, việc tạo/đổi mật khẩu vẫn dùng hash như cũ và chưa hỗ trợ xem lại. Sửa quota mà để trống mật khẩu giữ bản mã hóa hiện có. Quyền admin cho phép đọc mật khẩu nên chỉ cấp cho người được phép biết các mật khẩu này.

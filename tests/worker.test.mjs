@@ -12,7 +12,7 @@ const pin = 'test-only-admin-secret';
 const password = 'mật khẩu:a:b';
 const config = () => ({
   modules: true, scriptPath, modulesRoot: directory, compatibilityDate: '2026-05-20',
-  bindings: { ADMIN_PIN: pin }, kvNamespaces: ['USER_KV'], r2Buckets: ['STORAGE_R2'],
+  bindings: { ADMIN_PIN: pin, PASSWORD_VAULT_KEY: 'ab'.repeat(32) }, kvNamespaces: ['USER_KV'], r2Buckets: ['STORAGE_R2'],
   durableObjects: { USER_STORAGE: { className: 'UserStorage', useSQLite: true } },
   log: new Log(LogLevel.ERROR),
 });
@@ -213,4 +213,39 @@ test('JSON inventory is authenticated, scoped to the user and never cached', asy
   assert.ok(!JSON.stringify(data).includes('password'));
   const unauthorized = await mf.dispatchFetch('https://test.local/', { headers: { Accept: 'application/json' } });
   assert.equal(unauthorized.status, 401);
+});
+
+
+test('admin password vault requires session and CSRF, preserves edits and binds ciphertext to username', async () => {
+  const name = await user('vault_user');
+  const login = await mf.dispatchFetch('https://test.local/admin/login', { method: 'POST', body: new URLSearchParams({ pin }), redirect: 'manual' });
+  const session = login.headers.getSetCookie().find(v => v.startsWith('admin_session=') && !v.includes('Max-Age=0')).split(';')[0];
+  const dashboard = await mf.dispatchFetch('https://test.local/admin', { headers: { Cookie: session } });
+  const csrfCookie = dashboard.headers.getSetCookie().find(v => v.startsWith('csrf_token=')).split(';')[0];
+  const csrf = decodeURIComponent(csrfCookie.slice('csrf_token='.length));
+  const cookie = `${session}; ${csrfCookie}`;
+  const post = (path, body, Cookie = cookie) => mf.dispatchFetch(`https://test.local/admin/${path}`, { method: 'POST', headers: { Cookie }, body: new URLSearchParams(body), redirect: 'manual' });
+  assert.equal((await post('password', { username: name, _csrf: csrf }, '')).status, 302);
+  assert.equal((await post('password', { username: name })).status, 403);
+  assert.equal((await post('password', { username: name, _csrf: csrf })).status, 409);
+  const update = pass => post('user', { username: name, password: pass, _csrf: csrf, _mode: 'edit', quota_mb: '20', max_file_size_mb: '10', status: 'active' });
+  const secret = 'private-test-<>&-mật-khẩu';
+  assert.equal((await update(secret)).status, 302);
+  const stored = await kv.get(`user:${name}`);
+  assert.ok(!stored.includes(secret));
+  assert.ok(JSON.parse(stored).password_encrypted.startsWith('v1.'));
+  let result = await post('password', { username: name, _csrf: csrf });
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get('Cache-Control'), 'no-store');
+  assert.equal((await result.json()).password, secret);
+  assert.equal((await update('')).status, 302);
+  assert.equal((await (await post('password', { username: name, _csrf: csrf })).json()).password, secret);
+  const page = await mf.dispatchFetch('https://test.local/admin', { headers: { Cookie: cookie } });
+  const html = await page.text();
+  assert.ok(!html.includes(secret));
+  assert.ok(!html.includes(JSON.parse(stored).password_encrypted));
+  await kv.put('user:vault_copy', stored);
+  assert.equal((await post('password', { username: 'vault_copy', _csrf: csrf })).status, 503);
+  await update('replacement-test-password');
+  assert.equal((await (await post('password', { username: name, _csrf: csrf })).json()).password, 'replacement-test-password');
 });
