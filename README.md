@@ -98,6 +98,15 @@ Ví dụ: một bản backup 75 MB và hai bản lịch sử cùng kích thướ
 
 Mở địa chỉ trang quản trị được cung cấp và đăng nhập bằng mã quản trị.
 
+![Trang admin trên máy tính với tài khoản mẫu, form tạo tài khoản và danh sách quản lý](docs/images/admin-desktop.png)
+
+<details>
+<summary>Xem giao diện admin trên điện thoại</summary>
+
+<img src="docs/images/admin-mobile.png" alt="Trang admin trên điện thoại với các tài khoản minh họa" width="320">
+
+</details>
+
 ### Tạo hoặc sửa tài khoản
 
 | Trường | Điền gì? |
