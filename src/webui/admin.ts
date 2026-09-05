@@ -330,6 +330,7 @@ adminApp.get('/', async (c) => {
                           <div class="text-xs text-slate-600 mb-1.5 font-medium">${fmtBytes(usageBytes)} / ${u.quota_mb} MB</div>
                           <div class="bar-track w-28 shadow-inner">
                             <div class="bar-fill" style="width:${pct}%;background:${barColor}"></div>
+                            </div></details>
                           </div>
                         </td>
                         <td class="px-4 py-4 text-xs text-slate-500">
@@ -347,7 +348,8 @@ adminApp.get('/', async (c) => {
                         <td class="px-4 py-4 text-right">
                           <div class="user-actions">
                             <!-- Edit -->
-                            <button type="button" class="btn btn-edit" data-username="${u.username}" onclick="viewPassword(this)">Xem mật khẩu</button>
+                            <button type="button" class="btn btn-edit" data-username="${u.username}" onclick="viewPassword(this)">Mật khẩu</button>
+                            <details class="account-menu"><summary class="btn">Thao tác</summary><div class="account-menu-items">
                             <button type="button" class="btn btn-edit shadow-sm"
                               onclick="editUser(${JSON.stringify(u.username)}, ${u.quota_mb}, ${u.max_file_size_mb}, '${u.status}')">
                               Sửa thông tin
@@ -370,6 +372,7 @@ adminApp.get('/', async (c) => {
                               <input type="hidden" name="username" value="${u.username}">
                               <button type="submit" class="btn btn-delete shadow-sm">Xóa tài khoản</button>
                             </form>
+                            </div></details>
                           </div>
                         </td>
                       </tr>

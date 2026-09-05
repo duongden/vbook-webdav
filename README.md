@@ -154,3 +154,7 @@ Quota bao gồm cả lịch sử. Khi không đủ chỗ giữ bản cũ và b�
 ### Tạo lại thư mục từ VBook
 
 Để tương thích client tạo thư mục trước mỗi lần backup, MKCOL trả 201 cả khi collection đã tồn tại (gồm thư mục ngầm có file con); không sửa/xóa dữ liệu hiện có. Nếu đường dẫn trùng một file, vẫn trả 405. HEAD nhận diện thư mục có hoặc không có dấu `/` cuối, cả tại root và mount `/webdav`.
+
+### Danh sách backup gọn hơn
+
+Giao diện hỗ trợ lọc tất cả/bản hiện tại/lịch sử, tìm kiếm và phân trang 20 tệp. Tìm kiếm và đổi bộ lọc về trang đầu; xóa bản cuối trang tự điều chỉnh trang hiện tại. Phân trang thực hiện trên trình duyệt sau khi tải danh sách, chưa giảm lượng metadata đọc từ R2. Ngày giờ hiển thị theo Việt Nam; tên lịch sử rút gọn trên giao diện, đường dẫn tải/xóa giữ nguyên.

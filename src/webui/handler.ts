@@ -38,7 +38,7 @@ function formatBytes(bytes: number): string {
 }
 
 function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  return new Date(value).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 const fileIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
@@ -87,11 +87,12 @@ export const webuiHandler = async (c: Context<AppEnv>) => {
     </section>
     <section class="files-panel" aria-labelledby="files-title">
       <div class="panel-heading"><div class="panel-title"><h2 id="files-title">Tất cả tệp</h2><span class="count" id="file-count">${files.length}</span></div><button type="button" class="btn" id="refresh-files"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Làm mới</span></button></div>
+      <div class="backup-filters" role="group" aria-label="Loại bản sao lưu"><button type="button" class="btn" data-backup-filter="all" aria-pressed="true">Tất cả</button><button type="button" class="btn" data-backup-filter="current" aria-pressed="false">Bản hiện tại</button><button type="button" class="btn" data-backup-filter="history" aria-pressed="false">Lịch sử</button></div>
       <div class="toolbar"><label class="search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="visually-hidden">Tìm theo tên tệp hoặc thư mục</span><input id="search-files" type="search" placeholder="Tìm theo tên tệp hoặc thư mục…" autocomplete="off"></label><label class="visually-hidden" for="sort-files">Sắp xếp tệp</label><select id="sort-files"><option value="newest">Mới nhất trước</option><option value="name">Tên: A → Z</option><option value="largest">Dung lượng lớn nhất</option></select></div>
       <div class="list-heading" aria-hidden="true"><span>Tên tệp</span><span>Dung lượng</span><span class="date-heading">Ngày tải lên</span><span>Thao tác</span></div>
       <div id="file-list">${files.map(fileRow)}</div>
       <div class="empty" id="empty-state" ${files.length ? html`hidden` : ''}><div class="empty-icon">${fileIcon}</div><h3 id="empty-title">Kho lưu trữ đang trống</h3><p id="empty-message">Đồng bộ từ ứng dụng VBook hoặc Legado để bản sao lưu xuất hiện tại đây.</p><button type="button" class="btn" id="clear-search" hidden style="margin-top:18px">Xóa bộ lọc</button></div>
-      <div class="panel-footer"><span id="visible-count">Hiển thị ${files.length} tệp</span><span id="sync-note" role="status">Danh sách đã cập nhật</span></div>
+      <div class="panel-footer"><span id="visible-count">Hiển thị ${files.length} tệp</span><nav class="pagination" aria-label="Phân trang tệp"><button type="button" class="btn" id="previous-page" aria-label="Trang trước">←</button><span id="page-label" aria-live="polite"></span><button type="button" class="btn" id="next-page" aria-label="Trang sau">→</button></nav><span id="sync-note" role="status">Danh sách đã cập nhật</span></div>
     </section>
     <p class="footnote"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Các tệp được lưu riêng theo tài khoản.</p>
     <noscript><p>Bật JavaScript để tìm kiếm, làm mới danh sách và xóa tệp. Bạn vẫn có thể tải tệp bằng các liên kết phía trên.</p></noscript>

@@ -152,4 +152,7 @@ table{border-collapse:collapse;width:100%}th{font-size:11px;font-weight:600;colo
 .mb-10{margin-bottom:40px}
 .mt-10{margin-top:40px}
 .ml-10{margin-left:40px}
+
+.admin-page header{padding:16px 20px;margin-bottom:20px;align-items:center}.admin-page header h1{font-size:25px;line-height:1.2;margin:0 0 4px}.admin-page header p{margin:0;font-size:12px}.admin-page header a{padding:8px 12px;font-size:12px}.admin-page td{padding-block:10px}.user-actions{grid-template-columns:1fr 1fr;min-width:190px;align-items:start}.user-actions .btn{font-size:12px;min-height:38px;padding:8px 10px}.account-menu summary{cursor:pointer;list-style:none}.account-menu summary::-webkit-details-marker{display:none}.account-menu-items{display:grid;gap:6px;margin-top:6px}.account-menu-items form{display:contents}.account-menu[open]{grid-column:2}.admin-page td:nth-child(3){white-space:nowrap}
+@media(max-width:600px){.admin-page header{padding:14px 16px}.admin-page header h1{font-size:22px}.admin-page tbody tr{padding:12px 16px;gap:8px}.user-actions .btn{min-height:40px}}
 `;

@@ -246,9 +246,11 @@ test('admin password dialog fits mobile, renders safely and returns focus when c
   assert.equal(await page.locator('.password-dialog').count(), 0);
   assert.equal(await button.evaluate(el => document.activeElement === el), true);
   const actions = page.locator('#row-' + name + ' .user-actions');
+  await actions.locator('summary').click();
   const boxes = await actions.locator('button').evaluateAll(nodes => nodes.map(el => ({ height: el.getBoundingClientRect().height, whiteSpace: getComputedStyle(el).whiteSpace })));
   assert.equal(boxes.length, 4);
   assert.ok(boxes.every(box => box.height === boxes[0].height && box.whiteSpace === 'nowrap'));
+  await actions.locator('summary').click();
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: '/tmp/vbook-admin-shared-desktop.png', fullPage: true });
   await button.click();
@@ -265,4 +267,28 @@ test('login shares theme and works without external stylesheets', async t => {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   assert.equal(await page.locator('form').evaluate(el => getComputedStyle(el).borderRadius), '18px');
   await page.screenshot({ path: '/tmp/vbook-login-shared.png' });
+});
+
+
+test('many backups paginate and filter history while preserving search and manual deletion', { timeout: 20000 }, async t => {
+  const files = Array.from({ length: 45 }, (_, i) => ({ name: i < 5 ? 'current-' + i + '.zip' : 'backup-history/2026-09-05_12-00-00-000_UTC+7_id-' + i + '/backup-' + i + '.zip', size: 100 }));
+  const { page } = await openDrive(t, { files });
+  assert.equal(await page.locator('[data-file]:visible').count(), 20);
+  await page.getByRole('button', { name: 'Trang sau', exact: true }).click();
+  assert.equal(await page.locator('#page-label').textContent(), '2 / 3');
+  await page.getByRole('button', { name: 'Bản hiện tại', exact: true }).click();
+  assert.equal(await page.locator('[data-file]:visible').count(), 5);
+  await page.getByRole('button', { name: 'Lịch sử', exact: true }).click();
+  assert.equal(await page.locator('[data-file]:visible').count(), 20);
+  assert.equal(await page.locator('#page-label').textContent(), '1 / 2');
+  await page.getByRole('searchbox').fill('backup-44');
+  assert.equal(await page.locator('[data-file]:visible').count(), 1);
+  await confirmDelete(page, 'backup-44.zip');
+  await page.getByRole('heading', { name: 'Không tìm thấy tệp phù hợp' }).waitFor();
+  await page.getByRole('button', { name: 'Xóa bộ lọc', exact: true }).click();
+  assert.equal(await page.locator('[data-file]:visible').count(), 20);
+  await page.screenshot({ path: '/tmp/vbook-compact-many-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({ path: '/tmp/vbook-compact-many-mobile.png', fullPage: true });
 });

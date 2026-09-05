@@ -11,6 +11,9 @@ export const driveScript = String.raw`
   const toast = document.getElementById('toast');
   const busy = new Set();
   let selected = null;
+  let page = 1;
+  let backupFilter = 'all';
+  const pageSize = 20;
   let toastTimer;
   let refreshing = false;
   let usage = Number(drive.dataset.usage);
@@ -28,7 +31,7 @@ export const driveScript = String.raw`
     const unit = Math.min(3, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
     return Number((bytes / 1024 ** unit).toFixed(2)).toLocaleString('vi-VN') + ' ' + ['B', 'KB', 'MB', 'GB'][unit];
   }
-  const formatDate = value => new Date(value).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const formatDate = value => new Date(value).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   function showToast(message, type = 'success', sticky = false) {
     clearTimeout(toastTimer);
@@ -67,21 +70,39 @@ export const driveScript = String.raw`
       if (sort.value === 'largest') return Number(b.dataset.size) - Number(a.dataset.size);
       return b.dataset.uploaded.localeCompare(a.dataset.uploaded) || a.dataset.name.localeCompare(b.dataset.name, 'vi');
     });
-    let visible = 0;
+    const matches = all.filter(row => normalize(row.dataset.name).includes(query) && (backupFilter === 'all' || row.dataset.name.startsWith('backup-history/') === (backupFilter === 'history')));
+    const visible = matches.length;
+    const pages = Math.max(1, Math.ceil(visible / pageSize));
+    page = Math.min(page, pages);
+    const shown = new Set(matches.slice((page - 1) * pageSize, page * pageSize));
     for (const row of all) {
-      row.hidden = !normalize(row.dataset.name).includes(query);
-      if (!row.hidden) visible++;
+      row.hidden = !shown.has(row);
+      const name = row.dataset.name;
+      const history = name.startsWith('backup-history/');
+      const parent = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : 'Thư mục gốc';
+      row.querySelector('.file-path').textContent = history ? 'Lịch sử · ' + parent.replace(/^backup-history\/([^/]+)\/?/, (_, stamp) => stamp.replace(/_UTC\+7_.*/, ' (GMT+7)').replace('_', ' ') + ' · ') : parent;
       list.append(row);
     }
-    document.getElementById('visible-count').textContent = query ? 'Hiển thị ' + visible + ' / ' + all.length + ' tệp' : 'Hiển thị ' + all.length + ' tệp';
+    document.getElementById('visible-count').textContent = visible ? ((page - 1) * pageSize + 1) + '–' + Math.min(page * pageSize, visible) + ' / ' + visible + ' tệp' : '0 tệp';
+    document.getElementById('page-label').textContent = page + ' / ' + pages;
+    document.getElementById('previous-page').disabled = page <= 1;
+    document.getElementById('next-page').disabled = page >= pages;
+    document.querySelector('.pagination').hidden = pages <= 1;
     document.getElementById('empty-state').hidden = visible > 0;
     document.getElementById('empty-title').textContent = all.length ? 'Không tìm thấy tệp phù hợp' : 'Kho lưu trữ đang trống';
     document.getElementById('empty-message').textContent = all.length ? 'Thử tên khác hoặc xóa bộ lọc để xem tất cả tệp.' : 'Đồng bộ từ ứng dụng VBook hoặc Legado để bản sao lưu xuất hiện tại đây.';
-    document.getElementById('clear-search').hidden = !query;
+    document.getElementById('clear-search').hidden = !query && backupFilter === 'all';
   }
-  search.addEventListener('input', filterAndSort);
-  sort.addEventListener('change', filterAndSort);
-  document.getElementById('clear-search').addEventListener('click', () => { search.value = ''; filterAndSort(); search.focus(); });
+  search.addEventListener('input', () => { page = 1; filterAndSort(); });
+  sort.addEventListener('change', () => { page = 1; filterAndSort(); });
+  document.querySelectorAll('[data-backup-filter]').forEach(button => button.addEventListener('click', () => {
+    backupFilter = button.dataset.backupFilter; page = 1;
+    document.querySelectorAll('[data-backup-filter]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+    filterAndSort();
+  }));
+  document.getElementById('previous-page').onclick = () => { page--; filterAndSort(); };
+  document.getElementById('next-page').onclick = () => { page++; filterAndSort(); };
+  document.getElementById('clear-search').addEventListener('click', () => { search.value = ''; backupFilter = 'all'; page = 1; document.querySelectorAll('[data-backup-filter]').forEach(item => item.setAttribute('aria-pressed', String(item.dataset.backupFilter === 'all'))); filterAndSort(); search.focus(); });
 
   async function fetchWithTimeout(url, options, milliseconds = 10000) {
     const controller = new AbortController();
