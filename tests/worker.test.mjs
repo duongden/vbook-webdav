@@ -278,3 +278,26 @@ test('history quota rejects overwrite without losing current file', async () => 
   assert.equal((await bucket.head(`${name}/backup`)).size, 700000);
   assert.equal((await bucket.list({ prefix: `${name}/backup-history/` })).objects.length, 0);
 });
+
+test('VBook repeated MKCOL and directory HEAD work with either trailing slash and mounts', async () => {
+  const name = await user('vbook_mkcol');
+  for (const path of ['/', '/webdav', '/webdav/', '/vbook-backup', '/vbook-backup/', '/webdav/vbook-backup', '/webdav/vbook-backup/']) {
+    assert.equal((await request(name, path, 'MKCOL')).status, 201, path);
+    assert.equal((await request(name, path, 'HEAD')).status, 200, path);
+    assert.equal((await request(name, path, 'PROPFIND', undefined, { Depth: '0' })).status, 207, path);
+  }
+  assert.equal((await request(name, '/vbook-backup/file.zip', 'PUT', 'backup')).status, 201);
+  assert.equal((await request(name, '/vbook-backup', 'MKCOL')).status, 201);
+  assert.equal(await (await request(name, '/vbook-backup/file.zip')).text(), 'backup');
+  await request(name, '/implicit/backup.zip', 'PUT', 'data');
+  assert.equal((await request(name, '/implicit', 'HEAD')).status, 200);
+  assert.equal((await request(name, '/implicit/', 'HEAD')).status, 200);
+  assert.equal((await request(name, '/implicit', 'MKCOL')).status, 201);
+  for (const path of ['/implicit/backup.zip', '/implicit/backup.zip/']) {
+    assert.equal((await request(name, path, 'MKCOL')).status, 405);
+  }
+  assert.equal((await request(name, '/missing', 'HEAD')).status, 404);
+  assert.equal((await request(name, '/vbook-backup-other', 'HEAD')).status, 404);
+  const other = await user('vbook_mkcol_other');
+  assert.equal((await request(other, '/vbook-backup', 'HEAD')).status, 404);
+});

@@ -150,3 +150,7 @@ App tiếp tục dùng URL và tên file cũ. Mỗi lần PUT ghi đè thành c�
 Các bản lịch sử xuất hiện trong danh sách web, tải về hoặc xóa bằng nút hiện có. Không tự xóa theo tuổi hay số lượng. Không cho PUT/MKCOL vào thư mục `backup-history` dành riêng cho server; GET/HEAD/DELETE vẫn được phép. Xóa file hiện tại không xóa lịch sử ở thư mục riêng; xóa toàn bộ tài khoản/toàn bộ thư mục gốc có thể xóa cả lịch sử.
 
 Quota bao gồm cả lịch sử. Khi không đủ chỗ giữ bản cũ và bản mới, upload trả 507 và giữ nguyên dữ liệu; xóa thủ công bản không cần rồi thử lại. Bản sao cũ hoàn tất trước khi thay file hiện tại. Upload lỗi giữ nguyên file cũ và dọn bản sao thừa của lần thử đó; nếu Worker bị ngắt đột ngột có thể còn thêm một bản lịch sử, được tính lại vào quota. Không tự chia nhỏ hay nén thêm nội dung backup.
+
+### Tạo lại thư mục từ VBook
+
+Để tương thích client tạo thư mục trước mỗi lần backup, MKCOL trả 201 cả khi collection đã tồn tại (gồm thư mục ngầm có file con); không sửa/xóa dữ liệu hiện có. Nếu đường dẫn trùng một file, vẫn trả 405. HEAD nhận diện thư mục có hoặc không có dấu `/` cuối, cả tại root và mount `/webdav`.

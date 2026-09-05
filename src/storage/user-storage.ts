@@ -75,9 +75,12 @@ export class UserStorage {
     if (action === '/mkcol') {
       if (key === `${username}/backup-history` || key.startsWith(`${username}/backup-history/`)) return new Response('Backup history is read-only', { status: 403 });
       const directory = key.endsWith('/') ? key : `${key}/`;
-      if (await this.env.STORAGE_R2.head(key) || await this.env.STORAGE_R2.head(directory)) {
-        return new Response('Collection already exists', { status: 405 });
-      }
+      const fileKey = directory.slice(0, -1);
+      if (await this.env.STORAGE_R2.head(fileKey)) return new Response('A file already exists at this path', { status: 405 });
+      // VBook may repeat MKCOL on every backup. Treat an existing collection as success.
+      if (directory === `${username}/` || await this.env.STORAGE_R2.head(directory)) return new Response(null, { status: 201 });
+      const children = await this.env.STORAGE_R2.list({ prefix: directory, limit: 1 });
+      if (children.objects.length) return new Response(null, { status: 201 });
       await this.env.STORAGE_R2.put(directory, '');
       return new Response(null, { status: 201 });
     }

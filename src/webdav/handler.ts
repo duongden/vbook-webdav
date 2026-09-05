@@ -155,6 +155,11 @@ export const webdavHandler = async (c: Context<AppEnv>) => {
   if (method === 'GET' || method === 'HEAD') {
     const obj = method === 'HEAD' ? await c.env.STORAGE_R2.head(objectKey) : await c.env.STORAGE_R2.get(objectKey);
     if (!obj) {
+      if (method === 'HEAD') {
+        const prefix = objectKey.endsWith('/') ? objectKey : `${objectKey}/`;
+        const exists = objectKey === `${username}/` || (await c.env.STORAGE_R2.list({ prefix, limit: 1 })).objects.length > 0;
+        if (exists) return new Response(null, { status: 200, headers: { 'Content-Length': '0', 'Cache-Control': 'private, no-store' } });
+      }
       return c.text('Not Found', 404);
     }
 
