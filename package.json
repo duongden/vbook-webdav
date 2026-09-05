@@ -7,7 +7,8 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "test:ui": "node --test tests/ui.browser.mjs"
   },
   "dependencies": {
     "hono": "^4.12.21"
@@ -16,6 +17,7 @@
     "@cloudflare/workers-types": "^4.20260702.1",
     "esbuild": "^0.27.3",
     "miniflare": "^4.20260518.0",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "wrangler": "^4.4.0"
   }

@@ -1,187 +1,104 @@
 import { Context } from 'hono';
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import { AppEnv } from '../types';
 import { getUsage } from '../storage/client';
+import { encodePath } from '../utils/path';
+import { driveStyles } from './drive-styles';
+import { driveScript } from './drive-script';
+
+interface DriveFile { name: string; size: number; uploaded: string }
+
+async function inventory(c: Context<AppEnv>) {
+  const username = c.get('username');
+  const files: DriveFile[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await c.env.STORAGE_R2.list({ prefix: `${username}/`, cursor });
+    for (const object of page.objects) {
+      if (!object.key.endsWith('/')) {
+        files.push({ name: object.key.substring(username.length + 1), size: object.size, uploaded: object.uploaded.toISOString() });
+      }
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  files.sort((a, b) => b.uploaded.localeCompare(a.uploaded) || a.name.localeCompare(b.name));
+  return { files, usageBytes: await getUsage(c.env, username), quotaBytes: (c.get('user').quota_mb || 500) * 1024 * 1024 };
+}
+
+export const webuiDataHandler = async (c: Context<AppEnv>) => {
+  c.header('Cache-Control', 'private, no-store');
+  c.header('Vary', 'Accept');
+  return c.json(await inventory(c));
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const unit = Math.min(3, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
+  return `${Number((bytes / 1024 ** unit).toFixed(2)).toLocaleString('vi-VN')} ${['B', 'KB', 'MB', 'GB'][unit]}`;
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+}
+
+const fileIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
+const deleteIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>`;
+const downloadIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg>`;
+
+function fileRow(file: DriveFile) {
+  const slash = file.name.lastIndexOf('/');
+  const base = file.name.substring(slash + 1);
+  const parent = slash >= 0 ? file.name.substring(0, slash) : 'Thư mục gốc';
+  const kind = /\.(zip|gz|rar|7z)$/i.test(base) ? 'archive' : /\.(json|db|xml)$/i.test(base) ? 'data' : 'file';
+  return html`<article class="file-row" data-file data-name="${file.name}" data-size="${file.size}" data-uploaded="${file.uploaded}">
+    <div class="file-main"><div class="file-icon" data-kind="${kind}">${fileIcon}</div>
+      <div class="file-label"><h3 class="file-name" title="${file.name}">${base}</h3><div class="file-path">${parent}</div><span class="file-state" hidden></span></div>
+    </div>
+    <div class="file-size">${formatBytes(file.size)}</div>
+    <time class="file-date" datetime="${file.uploaded}">${formatDate(file.uploaded)}</time>
+    <div class="file-actions">
+      <a class="btn btn-quiet download-file" href="/webdav/${encodePath(file.name)}" aria-label="Tải xuống ${base}">${downloadIcon}<span>Tải về</span></a>
+      <button type="button" class="btn btn-danger delete-file" data-name="${file.name}" aria-label="Xóa ${base}">${deleteIcon}<span>Xóa</span></button>
+    </div>
+  </article>`;
+}
 
 export const webuiHandler = async (c: Context<AppEnv>) => {
+  const { files, usageBytes, quotaBytes } = await inventory(c);
   const username = c.get('username');
-  const user = c.get('user');
-
-  // List user files
-  const prefix = `${username}/`;
-  let listOptions: R2ListOptions = { prefix };
-  let listed;
-  const allObjects = [];
-
-  do {
-    listed = await c.env.STORAGE_R2.list(listOptions);
-    allObjects.push(...listed.objects);
-    listOptions.cursor = listed.truncated ? listed.cursor : undefined;
-  } while (listed.truncated);
-
-  const currentUsageBytes = await getUsage(c.env, username);
-  const files = allObjects.filter(obj => !obj.key.endsWith('/')).map(obj => {
-    return {
-      name: obj.key.substring(prefix.length),
-      size: obj.size,
-      date: obj.uploaded.toLocaleString()
-    };
-  });
-
-  c.header('Cache-Control', 'no-store');
-
-  const quotaBytes = (user.quota_mb || 500) * 1024 * 1024;
-  const usagePercent = Math.min(100, Math.round((currentUsageBytes / quotaBytes) * 100));
-
-  function formatBytes(bytes: number) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  function encodePath(path: string) {
-    return path.split('/').map(encodeURIComponent).join('/');
-  }
-
-  const page = html`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>My Cloud Drive</title>
-      <script src="https://cdn.tailwindcss.com"></script>
-      <script>
-        tailwind.config = {
-          theme: { extend: { colors: { base: '#fbfbfb', primary: '#fae87a', secondary: '#fcf6c6', info: '#80c6f9', danger: '#e43b12' } } }
-        }
-      </script>
-      <style>
-        body { font-family: system-ui, sans-serif; background-color: #fbfbfb; color: #333;
-          background-image: linear-gradient(rgba(128,198,249,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(128,198,249,0.15) 1px, transparent 1px); background-size: 24px 24px; }
-        .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(250,232,122,0.6); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); }
-        .file-card { background: #ffffff; border: 1px solid #e2e8f0; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .file-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #80c6f9; }
-
-        #toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 24px; border-radius: 12px;
-                 font-size: 0.875rem; font-weight: 600; opacity: 0; transform: translateY(12px); color: #fff;
-                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none; z-index: 999; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
-        #toast.show { opacity: 1; transform: translateY(0); }
-        .toast-success { background: #10b981; }
-        .toast-error { background: #e43b12; }
-      </style>
-    </head>
-    <body class="min-h-screen p-4 md:p-8">
-      <div id="toast"></div>
-
-      <div class="max-w-4xl mx-auto space-y-6">
-        <header class="flex flex-col sm:flex-row justify-between items-center glass p-6 rounded-2xl relative overflow-hidden">
-          <div class="absolute inset-0 bg-gradient-to-r from-primary/20 to-transparent pointer-events-none"></div>
-          <div class="relative z-10 text-center sm:text-left mb-4 sm:mb-0">
-            <h1 class="text-2xl font-bold text-slate-800 flex items-center gap-2 justify-center sm:justify-start">
-              <span class="text-3xl">☁️</span> Vbook WebDAV Cloud
-            </h1>
-            <p class="text-slate-500 text-sm mt-1">Logged in as <span class="font-bold text-slate-700">${username}</span></p>
-          </div>
-          <div class="relative z-10 w-full sm:w-auto bg-white/60 p-4 rounded-xl border border-secondary">
-            <div class="text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wider">Storage Usage</div>
-            <div class="flex items-center gap-3">
-              <div class="w-full sm:w-32 h-2 bg-slate-200 rounded-full overflow-hidden shadow-inner">
-                <div class="h-full bg-info" style="width: ${usagePercent}%"></div>
-              </div>
-              <span class="text-sm font-bold text-slate-700 whitespace-nowrap">${formatBytes(currentUsageBytes)} / ${formatBytes(quotaBytes)}</span>
-            </div>
-          </div>
-        </header>
-
-        <main class="glass rounded-2xl p-6">
-          <div class="flex justify-between items-center mb-6">
-            <h2 class="font-bold text-lg text-slate-800">My Files</h2>
-            <button onclick="location.reload()" class="flex items-center gap-2 text-sm px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-all border border-slate-200 shadow-sm">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-              Refresh
-            </button>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            ${files.length === 0 ? html`
-              <div class="col-span-full py-16 text-center bg-white/50 rounded-xl border border-dashed border-slate-300">
-                <div class="text-4xl mb-3">📭</div>
-                <h3 class="text-slate-700 font-bold text-lg mb-1">No files found</h3>
-                <p class="text-slate-500 text-sm max-w-sm mx-auto">Upload files directly from the VBook or Legado apps using the WebDAV integration.</p>
-              </div>
-            ` : files.map(f => html`
-              <div class="file-card p-4 rounded-xl flex flex-col justify-between" id="file-${f.name}">
-                <div class="flex items-start gap-3 mb-4">
-                  <div class="p-2 bg-secondary/50 rounded-lg text-yellow-600">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <h3 class="font-bold text-slate-800 text-sm truncate" title="${f.name}">${f.name}</h3>
-                    <div class="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                      <span class="font-medium bg-slate-100 px-2 py-0.5 rounded">${formatBytes(f.size)}</span>
-                      <span>${f.date}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="flex justify-end gap-2 border-t border-slate-100 pt-3 mt-auto">
-                  <a href="/webdav/${encodePath(f.name)}" target="_blank"
-                    class="px-4 py-1.5 bg-info hover:brightness-95 text-slate-900 font-semibold text-xs rounded-lg transition-all shadow-sm">
-                    Download
-                  </a>
-                  <button onclick="deleteFile(this.dataset.name)" data-name="${f.name}"
-                    class="px-4 py-1.5 bg-white text-danger hover:bg-red-50 font-semibold text-xs rounded-lg transition-all border border-danger/30">
-                    Delete
-                  </button>
-                </div>
-              </div>
-            `)}
-          </div>
-        </main>
-      </div>
-
-      <script>
-        function showToast(msg, type) {
-          const t = document.getElementById('toast');
-          t.textContent = msg;
-          t.className = 'toast-' + type;
-          t.classList.add('show');
-          setTimeout(() => t.classList.remove('show'), 3000);
-        }
-
-        function encodePath(path) {
-          return path.split('/').map(encodeURIComponent).join('/');
-        }
-
-        async function deleteFile(name) {
-          if (!confirm('Are you sure you want to delete "' + name + '"?')) return;
-          try {
-            const res = await fetch('/webdav/' + encodePath(name), { method: 'DELETE' });
-            if (res.ok) {
-              const card = document.getElementById('file-' + name);
-              if (card) {
-                card.style.transform = 'scale(0.95)';
-                card.style.opacity = '0';
-                setTimeout(() => card.remove(), 200);
-              }
-              showToast('File deleted successfully', 'success');
-              setTimeout(() => window.location.reload(), 1500);
-            } else if (res.status === 503 && res.headers.get('Retry-After')) {
-              showToast('Deletion is still running. Try again shortly.', 'error');
-            } else {
-              showToast('Failed to delete file', 'error');
-            }
-          } catch (e) {
-            showToast('Error connecting to server', 'error');
-          }
-        }
-      </script>
-    </body>
-    </html>
-  `;
-
-  return c.html(page);
+  const percent = Math.min(100, Math.round(usageBytes / quotaBytes * 100));
+  c.header('Cache-Control', 'private, no-store');
+  c.header('Vary', 'Accept');
+  c.header('X-Content-Type-Options', 'nosniff');
+  return c.html(html`<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Tệp của tôi · VBook Cloud</title><style>${raw(driveStyles)}</style></head>
+<body>
+  <header class="topbar"><div class="topbar-inner">
+    <a class="brand" href="/" aria-label="VBook Cloud — trang chủ"><span class="brand-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 20 10a4 4 0 0 1-1 8H7Z"/></svg></span><span>VBook <span class="brand-secondary">Cloud</span></span></a>
+    <div class="account"><span class="avatar" aria-hidden="true">${username.charAt(0).toUpperCase()}</span><span class="account-name" title="${username}">${username}</span></div>
+  </div></header>
+  <main class="shell" id="drive" data-usage="${usageBytes}" data-quota="${quotaBytes}">
+    <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">Không gian lưu trữ cá nhân</p><h1 id="page-title">Tệp của tôi</h1><p class="subtitle">Các bản sao lưu từ VBook và Legado, gọn gàng ở một nơi.</p></div><span class="connection"><span class="dot"></span>WebDAV</span></section>
+    <section class="stats" aria-label="Tổng quan lưu trữ">
+      <div class="stat"><div class="stat-title"><span>Dung lượng đã dùng</span><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"/></svg></div><div class="stat-value"><span id="usage-value">${formatBytes(usageBytes)}</span> <small>/ <span id="quota-value">${formatBytes(quotaBytes)}</span></small></div><div class="meter" role="progressbar" aria-label="Dung lượng đã dùng" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><div class="meter-fill" style="width:${percent}%"></div></div><div class="stat-note" id="usage-note">Còn ${formatBytes(Math.max(0, quotaBytes - usageBytes))} trống</div></div>
+      <div class="stat"><div class="stat-title"><span>Tổng số tệp</span>${fileIcon}</div><div class="stat-value" id="total-files">${files.length.toLocaleString('vi-VN')}</div><div class="stat-note">Trong kho lưu trữ của bạn</div></div>
+      <div class="stat"><div class="stat-title"><span>Tệp mới nhất</span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div class="stat-value stat-date" id="latest-file">${files.length ? formatDate(files[0].uploaded) : 'Chưa có tệp'}</div><div class="stat-note">Ngày tải lên gần nhất</div></div>
+    </section>
+    <section class="files-panel" aria-labelledby="files-title">
+      <div class="panel-heading"><div class="panel-title"><h2 id="files-title">Tất cả tệp</h2><span class="count" id="file-count">${files.length}</span></div><button type="button" class="btn" id="refresh-files"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Làm mới</span></button></div>
+      <div class="toolbar"><label class="search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="visually-hidden">Tìm theo tên tệp hoặc thư mục</span><input id="search-files" type="search" placeholder="Tìm theo tên tệp hoặc thư mục…" autocomplete="off"></label><label class="visually-hidden" for="sort-files">Sắp xếp tệp</label><select id="sort-files"><option value="newest">Mới nhất trước</option><option value="name">Tên: A → Z</option><option value="largest">Dung lượng lớn nhất</option></select></div>
+      <div class="list-heading" aria-hidden="true"><span>Tên tệp</span><span>Dung lượng</span><span class="date-heading">Ngày tải lên</span><span>Thao tác</span></div>
+      <div id="file-list">${files.map(fileRow)}</div>
+      <div class="empty" id="empty-state" ${files.length ? html`hidden` : ''}><div class="empty-icon">${fileIcon}</div><h3 id="empty-title">Kho lưu trữ đang trống</h3><p id="empty-message">Đồng bộ từ ứng dụng VBook hoặc Legado để bản sao lưu xuất hiện tại đây.</p><button type="button" class="btn" id="clear-search" hidden style="margin-top:18px">Xóa bộ lọc</button></div>
+      <div class="panel-footer"><span id="visible-count">Hiển thị ${files.length} tệp</span><span id="sync-note" role="status">Danh sách đã cập nhật</span></div>
+    </section>
+    <p class="footnote"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Các tệp được lưu riêng theo tài khoản.</p>
+    <noscript><p>Bật JavaScript để tìm kiếm, làm mới danh sách và xóa tệp. Bạn vẫn có thể tải tệp bằng các liên kết phía trên.</p></noscript>
+  </main>
+  <template id="file-template">${fileRow({ name: '', size: 0, uploaded: '1970-01-01T00:00:00.000Z' })}</template>
+  <dialog id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description"><div class="dialog-icon">${deleteIcon}</div><h2 id="delete-title">Xóa tệp này?</h2><p id="delete-description">Tệp sẽ được xóa khỏi kho lưu trữ. Thao tác này không thể hoàn tác.</p><strong id="delete-name" class="delete-name"></strong><div class="dialog-actions"><button type="button" class="btn" id="cancel-delete" autofocus>Giữ lại</button><button type="button" class="btn btn-remove" id="confirm-delete">Xóa tệp</button></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toast-icon" aria-hidden="true"></span><p id="toast-message"></p><button type="button" id="dismiss-toast" aria-label="Đóng thông báo"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+  <script>${raw(driveScript)}</script>
+</body></html>`);
 };

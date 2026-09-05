@@ -71,6 +71,14 @@ Không chạy đồng thời phiên bản cũ và mới cùng ghi một bucket. 
 
 Mở `/` bằng trình duyệt để xem danh sách và tải/xóa file; mở `/admin` để quản trị.
 
+### Giao diện quản lý file
+
+Giao diện tiếng Việt hỗ trợ điện thoại, tìm tên tệp/thư mục (không bắt buộc gõ dấu), sắp xếp theo tên, ngày hoặc dung lượng. Làm mới danh sách và xóa file không tải lại toàn trang. CSS/JavaScript của giao diện file được bundle trực tiếp, không phụ thuộc Tailwind CDN.
+
+Khi xóa, nút được khóa trong lúc xử lý và có hộp xác nhận trước thao tác. Nếu DELETE lỗi hoặc mất kết nối, giao diện dùng HEAD để xác nhận lại: chỉ báo thành công khi DELETE trả 200/204 hoặc HEAD xác nhận 404. Nếu chưa biết kết quả, tệp vẫn được giữ trên giao diện cùng nút **Kiểm tra lại**; nút này không gửi thêm DELETE. Lỗi 401/403 được báo riêng.
+
+`GET /` với `Accept: application/json` trả danh sách file và dung lượng cho UI, vẫn bắt buộc Basic Auth và dùng `Cache-Control: private, no-store`. Các response có header `X-VBook-Version` để đối chiếu bản đang triển khai. Push GitHub không tự cập nhật Worker nếu chưa cấu hình tự động deploy; cần triển khai đúng tên Worker của URL đang dùng.
+
 ## Dung lượng và xử lý lỗi
 
 - Quota và giới hạn file trong giao diện được nhập theo MiB (1.048.576 byte). Server cũng giới hạn mỗi upload ở 100.000.000 byte. Giới hạn request ở Cloudflare Edge phụ thuộc gói tài khoản.
@@ -84,6 +92,8 @@ Mở `/` bằng trình duyệt để xem danh sách và tải/xóa file; mở `/
 ## Kiểm thử và backup local
 
 `npm run check` chạy TypeScript strict và test. Test tích hợp dùng Miniflare/workerd với R2, KV và SQLite-backed DO cục bộ; không gọi tài nguyên Cloudflare production. Có test upload đồng thời, overwrite, quota, phân trang >1.000 file, tên đặc biệt, admin/CSRF và fault injection cho việc xóa/stream bị gián đoạn.
+
+`npm run test:ui` chạy thêm kiểm thử Chrome/Chromium headless cho giao diện, gồm lỗi 500 sau khi xóa thành công, mất kết nối, pending, quyền truy cập, tìm kiếm và bố cục điện thoại. Trên macOS có Chrome, test dùng Chrome đã cài; ở môi trường khác chạy `npx playwright install chromium` trước, hoặc đặt `VBOOK_TEST_CHROME` tới executable Chromium. Tất cả dữ liệu và tài khoản trong test là giả.
 
 `.local-backups/` chỉ dành cho backup riêng trên máy. Không commit, push, deploy hay đính kèm thư mục này vào artifact. Worker chỉ bundle entrypoint trong `src`; không cấu hình static assets trỏ vào thư mục gốc dự án.
 

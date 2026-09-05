@@ -197,3 +197,20 @@ test('missing ADMIN_PIN fails closed for both login and dashboard', async () => 
     assert.equal(response.status, 503);
   } finally { await unconfigured.dispose(); }
 });
+
+test('JSON inventory is authenticated, scoped to the user and never cached', async () => {
+  const alice = await user('inventory_a'), bob = await user('inventory_b');
+  await bucket.put(`${alice}/a&b.json`, 'data');
+  await bucket.put(`${bob}/private.json`, 'private');
+  const response = await request(alice, '/', 'GET', undefined, { Accept: 'application/json' });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'private, no-store');
+  assert.equal(response.headers.get('Vary'), 'Accept');
+  const data = await response.json();
+  assert.deepEqual(data.files.map(file => file.name), ['a&b.json']);
+  assert.equal(data.usageBytes, 4);
+  assert.equal(data.quotaBytes, 1024 * 1024);
+  assert.ok(!JSON.stringify(data).includes('password'));
+  const unauthorized = await mf.dispatchFetch('https://test.local/', { headers: { Accept: 'application/json' } });
+  assert.equal(unauthorized.status, 401);
+});
