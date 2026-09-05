@@ -226,11 +226,21 @@ adminApp.get('/', async (c) => {
       <script src="https://cdn.tailwindcss.com"></script>
       <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
       <style>
-        dialog { border: 1px solid #cbd5e1; border-radius: 14px; padding: 24px; width: min(420px, 90vw); margin: auto; }
-        dialog::backdrop { background: #0f172a80; }
-        dialog p { font-weight: 600; margin-bottom: 12px; }
-        dialog input { width: 100%; padding: 10px; border-radius: 6px; }
-        dialog button { display: block; margin: 16px 0 0 auto; padding: 8px 18px; border-radius: 6px; background: #fae87a; }
+        .password-dialog { box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 20px; padding: 28px; width: min(440px, calc(100vw - 32px)); max-width: none; margin: auto; color: #0f172a; background: #fff; box-shadow: 0 24px 80px #0f172a33; }
+        .password-dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
+        .password-dialog h2 { font-size: 20px; line-height: 1.4; font-weight: 700; margin: 0 0 6px; }
+        .password-dialog .password-account { color: #64748b; font-size: 14px; margin: 0 0 22px; overflow-wrap: anywhere; }
+        .password-dialog .password-field { box-sizing: border-box; display: block; width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; color: #0f172a; background: #f8fafc; font: 16px/1.5 ui-monospace, monospace; }
+        .password-dialog .password-note { color: #64748b; font-size: 12px; margin: 12px 0 24px; }
+        .password-dialog .password-footer { display: flex; justify-content: flex-end; gap: 10px; }
+        .password-dialog .password-close, .password-dialog .password-copy { padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid #e2e8f0; }
+        .password-dialog .password-close { background: #fff; color: #475569; }
+        .password-dialog .password-copy { background: #2563eb; color: #fff; border-color: #2563eb; }
+        .password-dialog button:focus-visible, .user-actions button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+        .user-actions { display: grid; grid-template-columns: repeat(2, minmax(108px, 1fr)); gap: 8px; min-width: 224px; }
+        .user-actions form { margin: 0; display: contents; }
+        .user-actions .btn { justify-content: center; min-height: 40px; width: 100%; padding: 9px 12px; white-space: nowrap; line-height: 20px; border-radius: 9px; font-size: 13px; font-weight: 600; box-shadow: none; }
+        .user-actions .btn:disabled { opacity: .55; cursor: wait; transform: none; }
         body { font-family: system-ui, sans-serif; background-color: #fbfbfb; color: #333;
           background-image: radial-gradient(rgba(128,198,249,0.2) 1px, transparent 1px); background-size: 20px 20px; }
         .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(250,232,122,0.6); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
@@ -382,12 +392,12 @@ adminApp.get('/', async (c) => {
                           </span>
                         </td>
                         <td class="px-4 py-4 text-right">
-                          <div class="flex items-center justify-end gap-2">
+                          <div class="user-actions">
                             <!-- Edit -->
                             <button type="button" class="btn btn-edit" data-username="${u.username}" onclick="viewPassword(this)">Xem mật khẩu</button>
                             <button type="button" class="btn btn-edit shadow-sm"
                               onclick="editUser(${JSON.stringify(u.username)}, ${u.quota_mb}, ${u.max_file_size_mb}, '${u.status}')">
-                              ✏️ Edit
+                              Sửa thông tin
                             </button>
 
                             <!-- Suspend / Activate toggle -->
@@ -396,7 +406,7 @@ adminApp.get('/', async (c) => {
                               <input type="hidden" name="username" value="${u.username}">
                               <input type="hidden" name="action" value="${u.status === 'active' ? 'suspend' : 'activate'}">
                               <button type="submit" class="btn ${u.status === 'active' ? 'btn-suspend' : 'btn-activate'} shadow-sm">
-                                ${u.status === 'active' ? '⏸ Suspend' : '▶ Activate'}
+                                ${u.status === 'active' ? 'Tạm khóa' : 'Mở khóa'}
                               </button>
                             </form>
 
@@ -405,7 +415,7 @@ adminApp.get('/', async (c) => {
                               onsubmit="return confirm('Delete user ${u.username} and ALL their files?')">
                               <input type="hidden" name="_csrf" value="${csrf}">
                               <input type="hidden" name="username" value="${u.username}">
-                              <button type="submit" class="btn btn-delete shadow-sm">🗑 Delete</button>
+                              <button type="submit" class="btn btn-delete shadow-sm">Xóa tài khoản</button>
                             </form>
                           </div>
                         </td>
@@ -430,19 +440,40 @@ adminApp.get('/', async (c) => {
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Không xem được mật khẩu');
             const dialog = document.createElement('dialog');
-            const label = document.createElement('p');
-            label.textContent = 'Mật khẩu của ' + button.dataset.username;
+            dialog.className = 'password-dialog';
+            dialog.setAttribute('aria-labelledby', 'password-title');
+            const label = document.createElement('h2');
+            label.id = 'password-title';
+            label.textContent = 'Mật khẩu tài khoản';
+            const account = document.createElement('p');
+            account.className = 'password-account';
+            account.textContent = button.dataset.username;
             const field = document.createElement('input');
+            field.className = 'password-field';
             field.readOnly = true;
             field.value = result.password;
             field.setAttribute('aria-label', 'Mật khẩu');
             const close = document.createElement('button');
+            close.className = 'password-close';
             close.textContent = 'Đóng';
+            const copy = document.createElement('button');
+            copy.className = 'password-copy';
+            copy.textContent = 'Sao chép';
+            copy.onclick = async () => {
+              try { await navigator.clipboard.writeText(field.value); copy.textContent = 'Đã sao chép'; }
+              catch { field.focus(); field.select(); copy.textContent = 'Nhấn Ctrl/Cmd + C'; }
+            };
+            const note = document.createElement('p');
+            note.className = 'password-note';
+            note.textContent = 'Cửa sổ tự đóng sau 30 giây.';
+            const footer = document.createElement('div');
+            footer.className = 'password-footer';
+            footer.append(close, copy);
             close.onclick = () => dialog.close();
-            dialog.append(label, field, close);
+            dialog.append(label, account, field, note, footer);
             document.body.append(dialog);
             const timer = setTimeout(() => dialog.close(), 30000);
-            dialog.addEventListener('close', () => { clearTimeout(timer); field.value = ''; dialog.remove(); }, { once: true });
+            dialog.addEventListener('close', () => { clearTimeout(timer); field.value = ''; dialog.remove(); button.focus(); }, { once: true });
             dialog.showModal();
           } catch (error) { showToast(error.message || 'Không xem được mật khẩu', 'error'); }
           finally { button.disabled = false; }
