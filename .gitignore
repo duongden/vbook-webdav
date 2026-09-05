@@ -33,6 +33,19 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+*.md
+
+#agent
+.agents/
+.agent/
+
+#backlog
+backlog/
+backlog-*.md
+
+# pnpm
+pnpm-*.yaml
+
 
 # Local backups — never commit or deploy
 /.local-backups/
