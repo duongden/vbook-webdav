@@ -1,0 +1,5 @@
+export const themeStyles = String.raw`
+:root{color-scheme:light;--bg:#f5f6f3;--surface:#fff;--ink:#18332d;--muted:#61746d;--line:#e2e8e2;--green:#14654e;--mint:#e8f3ed;--red:#b13635;--red-bg:#fff1ef;--radius:18px;--radius-control:10px;--radius-dialog:18px;--font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--focus:#8ebfb0;--shadow-dialog:0 20px 80px #122d3430}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--font-ui)}button,input,select{font:inherit}button,a,input,select{touch-action:manipulation}button,a{ -webkit-tap-highlight-color:transparent}button{cursor:pointer}button:disabled{cursor:wait;opacity:.6}a{color:inherit;text-decoration:none}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #8ebfb0;outline-offset:3px}[hidden]{display:none!important}svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+button,input,select{border-radius:var(--radius-control)}
+`;

@@ -231,6 +231,8 @@ test('admin password dialog fits mobile, renders safely and returns focus when c
   await page.route('**/admin/password', route => route.fulfill({ json: { password: 'demo-only-<safe>&123' } }));
   await page.goto(baseURL + '/admin');
   const button = page.locator('[data-username="' + name + '"]');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Admin fits mobile viewport');
+  await page.screenshot({ path: '/tmp/vbook-admin-shared-mobile.png', fullPage: true });
   await button.click();
   const dialog = page.getByRole('dialog');
   await dialog.waitFor();
@@ -248,6 +250,19 @@ test('admin password dialog fits mobile, renders safely and returns focus when c
   assert.equal(boxes.length, 4);
   assert.ok(boxes.every(box => box.height === boxes[0].height && box.whiteSpace === 'nowrap'));
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: '/tmp/vbook-admin-shared-desktop.png', fullPage: true });
   await button.click();
   await page.getByRole('dialog').screenshot({ path: '/tmp/vbook-admin-dialog-desktop.png' });
+});
+
+
+test('login shares theme and works without external stylesheets', async t => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await page.goto(baseURL + '/admin/login');
+  assert.equal(await page.locator('script[src]').count(), 0);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  assert.equal(await page.locator('form').evaluate(el => getComputedStyle(el).borderRadius), '18px');
+  await page.screenshot({ path: '/tmp/vbook-login-shared.png' });
 });

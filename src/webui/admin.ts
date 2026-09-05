@@ -1,10 +1,11 @@
 import { Hono, Context, Next } from 'hono';
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import { AppEnv, UserConfig } from '../types';
 import { getUsage, storageRequest } from '../storage/client';
 import { validUsername } from '../utils/path';
 import { getCookie, setCookie } from 'hono/cookie';
 import { hashPassword, generateSalt } from '../utils/crypto';
+import { adminStyles } from './admin-styles';
 import { encryptPassword, decryptPassword } from '../utils/password-vault';
 
 export const adminApp = new Hono<AppEnv>();
@@ -99,12 +100,10 @@ adminApp.get('/login', (c) => {
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>Admin Login · Vân Du</title>
-      <script src="https://cdn.tailwindcss.com"></script>
-      <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
-      <style>body{background-color:#fbfbfb;background-image:radial-gradient(rgba(128,198,249,0.2) 1px,transparent 1px);background-size:20px 20px;color:#333;font-family:system-ui,sans-serif;}</style>
+      <meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login · Vân Du</title>
+      <style>${raw(adminStyles)}</style>
     </head>
-    <body class="flex items-center justify-center min-h-screen">
+    <body class="login-page">
       <form method="POST" action="/admin/login" class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-secondary w-96">
         <h2 class="text-2xl font-bold mb-6 text-center text-slate-800">Admin Area</h2>
         <input type="password" name="pin" placeholder="Enter PIN"
@@ -135,11 +134,9 @@ adminApp.post('/login', async (c) => {
   if (attempts.count >= MAX_ATTEMPTS && Date.now() < attempts.until) {
     const remainingMinutes = Math.ceil((attempts.until - Date.now()) / 60000);
     return c.html(`<!DOCTYPE html><html lang="en">
-      <head><meta charset="UTF-8"><title>Locked</title>
-      <script src="https://cdn.tailwindcss.com"></script>
-      <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
-      <style>body{background-color:#fbfbfb;background-image:radial-gradient(rgba(128,198,249,0.2) 1px,transparent 1px);background-size:20px 20px;color:#333;font-family:system-ui,sans-serif;}</style></head>
-      <body class="flex items-center justify-center min-h-screen">
+      <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Locked</title>
+      <style>${adminStyles}</style></head>
+      <body class="login-page">
         <div class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-danger/30 w-96 text-center">
           <div class="text-4xl mb-4">🔒</div>
           <h2 class="text-xl font-bold mb-2 text-danger">Too Many Attempts</h2>
@@ -168,11 +165,9 @@ adminApp.post('/login', async (c) => {
   );
   const remaining = MAX_ATTEMPTS - newCount;
   return c.html(`<!DOCTYPE html><html lang="en">
-    <head><meta charset="UTF-8"><title>Admin Login</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
-    <style>body{background-color:#fbfbfb;background-image:radial-gradient(rgba(128,198,249,0.2) 1px,transparent 1px);background-size:20px 20px;color:#333;font-family:system-ui,sans-serif;}</style></head>
-    <body class="flex items-center justify-center min-h-screen">
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title>
+    <style>${adminStyles}</style></head>
+    <body class="login-page">
       <form method="POST" action="/admin/login" class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-secondary w-96">
         <h2 class="text-2xl font-bold mb-4 text-center text-slate-800">Admin Area</h2>
         <p class="text-danger text-sm text-center mb-6 font-medium">
@@ -223,51 +218,9 @@ adminApp.get('/', async (c) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Admin Dashboard · Vân Du</title>
-      <script src="https://cdn.tailwindcss.com"></script>
-      <script>tailwind.config={theme:{extend:{colors:{base:'#fbfbfb',primary:'#fae87a',secondary:'#fcf6c6',info:'#80c6f9',danger:'#e43b12'}}}}</script>
-      <style>
-        .password-dialog { box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 20px; padding: 28px; width: min(440px, calc(100vw - 32px)); max-width: none; margin: auto; color: #0f172a; background: #fff; box-shadow: 0 24px 80px #0f172a33; }
-        .password-dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
-        .password-dialog h2 { font-size: 20px; line-height: 1.4; font-weight: 700; margin: 0 0 6px; }
-        .password-dialog .password-account { color: #64748b; font-size: 14px; margin: 0 0 22px; overflow-wrap: anywhere; }
-        .password-dialog .password-field { box-sizing: border-box; display: block; width: 100%; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; color: #0f172a; background: #f8fafc; font: 16px/1.5 ui-monospace, monospace; }
-        .password-dialog .password-note { color: #64748b; font-size: 12px; margin: 12px 0 24px; }
-        .password-dialog .password-footer { display: flex; justify-content: flex-end; gap: 10px; }
-        .password-dialog .password-close, .password-dialog .password-copy { padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid #e2e8f0; }
-        .password-dialog .password-close { background: #fff; color: #475569; }
-        .password-dialog .password-copy { background: #2563eb; color: #fff; border-color: #2563eb; }
-        .password-dialog button:focus-visible, .user-actions button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
-        .user-actions { display: grid; grid-template-columns: repeat(2, minmax(108px, 1fr)); gap: 8px; min-width: 224px; }
-        .user-actions form { margin: 0; display: contents; }
-        .user-actions .btn { justify-content: center; min-height: 40px; width: 100%; padding: 9px 12px; white-space: nowrap; line-height: 20px; border-radius: 9px; font-size: 13px; font-weight: 600; box-shadow: none; }
-        .user-actions .btn:disabled { opacity: .55; cursor: wait; transform: none; }
-        body { font-family: system-ui, sans-serif; background-color: #fbfbfb; color: #333;
-          background-image: radial-gradient(rgba(128,198,249,0.2) 1px, transparent 1px); background-size: 20px 20px; }
-        .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border: 1px solid rgba(250,232,122,0.6); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-        .bar-track { background: #f1f5f9; border-radius: 9999px; overflow: hidden; height: 8px; border: 1px solid #e2e8f0; }
-        .bar-fill  { height: 100%; border-radius: 9999px; transition: width 0.4s ease; }
-        input, select { transition: all 0.2s; border: 1px solid #cbd5e1; }
-        input:focus, select:focus { outline: none; border-color: #80c6f9 !important; box-shadow: 0 0 0 3px rgba(128,198,249,0.2); }
-        .btn { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 500;
-               padding: 4px 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
-        .btn-edit    { background: #eff6ff; color: #3b82f6; border-color: #bfdbfe; }
-        .btn-edit:hover { background: #dbeafe; transform: translateY(-1px); }
-        .btn-suspend { background: #fef3c7; color: #d97706; border-color: #fde68a; }
-        .btn-suspend:hover { background: #fde68a; transform: translateY(-1px); }
-        .btn-activate{ background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
-        .btn-activate:hover { background: #d1fae5; transform: translateY(-1px); }
-        .btn-delete  { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
-        .btn-delete:hover { background: #fee2e2; transform: translateY(-1px); }
-        #toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 24px; border-radius: 12px;
-                 font-size: 0.875rem; font-weight: 600; opacity: 0; transform: translateY(12px); color: #fff;
-                 transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none; z-index: 999; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
-        #toast.show { opacity: 1; transform: translateY(0); }
-        .toast-success { background: #10b981; }
-        .toast-error { background: #e43b12; }
-        .toast-info { background: #80c6f9; color: #1e293b !important; }
-      </style>
+      <style>${raw(adminStyles)}</style>
     </head>
-    <body class="p-4 md:p-8">
+    <body class="admin-page p-8">
       <div id="toast"></div>
 
       <div class="max-w-6xl mx-auto">
