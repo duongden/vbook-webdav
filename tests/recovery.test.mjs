@@ -39,6 +39,7 @@ function fixture(count = 5) {
       const offset = Number(cursor || 0), page = all.slice(offset, offset + 2);
       return { objects: page, truncated: all.length > offset + 2, cursor: String(offset + 2) };
     },
+    get: async key => objects.has(key) ? { body: new Response(objects.get(key)).body } : null,
     head: async key => objects.has(key) ? { size: objects.get(key).byteLength } : null,
     delete: async keys => { for (const key of Array.isArray(keys) ? keys : [keys]) objects.delete(key); },
     put: async (key, body) => {
@@ -108,4 +109,18 @@ test('R2 failure cancels the upload pipeline instead of hanging or reporting suc
   f.bucket.put = async () => { throw new Error('Injected R2 failure'); };
   await assert.rejects(f.call(object, 'put', 'alice/keep', 'content', 7), /Injected R2 failure/);
   assert.equal(f.objects.get('alice/keep').byteLength, 3);
+});
+
+
+test('failed replacement after history copy preserves old file and cleans only redundant copy', async () => {
+  const f = fixture(), object = f.instance();
+  const original = f.bucket.put;
+  f.bucket.put = async (key, body) => {
+    if (key === 'alice/keep') throw new Error('Replacement failed');
+    return original(key, body);
+  };
+  await assert.rejects(f.call(object, 'put', 'alice/keep', 'replacement', 11), /Replacement failed/);
+  assert.equal(f.objects.get('alice/keep').byteLength, 3);
+  assert.equal([...f.objects.keys()].filter(key => key.includes('/backup-history/')).length, 0);
+  assert.equal((await (await f.call(object, 'usage')).json()).bytes, 8);
 });

@@ -80,7 +80,8 @@ test('concurrent PUTs reserve quota serially and overwrite accounting is exact',
     request(name, `/${existing}`, 'PUT', new Uint8Array(200)),
   ]);
   assert.deepEqual(overwrites.map(r => r.status), [201, 201]);
-  assert.equal(await usage(name), (await bucket.head(`${name}/${existing}`)).size);
+  assert.equal(await usage(name), 700300);
+  assert.equal((await bucket.list({ prefix: `${name}/backup-history/` })).objects.length, 2);
 });
 
 test('reject oversized uploads and require a known body length', async () => {
@@ -248,4 +249,32 @@ test('admin password vault requires session and CSRF, preserves edits and binds 
   assert.equal((await post('password', { username: 'vault_copy', _csrf: csrf })).status, 503);
   await update('replacement-test-password');
   assert.equal((await (await post('password', { username: name, _csrf: csrf })).json()).password, 'replacement-test-password');
+});
+
+
+test('dated history preserves old content, stays user-scoped and supports manual deletion', async () => {
+  const name = await user('dated_backup');
+  assert.equal((await request(name, '/folder/backup.zip', 'PUT', 'old backup')).status, 201);
+  assert.equal((await request(name, '/folder/backup.zip', 'PUT', 'new backup')).status, 201);
+  const history = (await bucket.list({ prefix: `${name}/backup-history/` })).objects;
+  assert.equal(history.length, 1);
+  assert.match(history[0].key, /backup-history\/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}.*UTC\+7.*\/folder\/backup.zip$/);
+  assert.equal(await (await bucket.get(history[0].key)).text(), 'old backup');
+  assert.equal(await (await request(name, '/folder/backup.zip')).text(), 'new backup');
+  assert.equal(await usage(name), 20);
+  const path = '/' + history[0].key.slice(name.length + 1);
+  assert.equal((await request(name, path, 'PUT', 'overwrite')).status, 403);
+  const other = await user('dated_other');
+  assert.equal((await request(other, path)).status, 404);
+  assert.equal((await request(name, path, 'DELETE')).status, 204);
+  assert.equal(await usage(name), 10);
+  assert.equal(await (await request(name, '/folder/backup.zip')).text(), 'new backup');
+});
+
+test('history quota rejects overwrite without losing current file', async () => {
+  const name = await user('history_quota');
+  assert.equal((await request(name, '/backup', 'PUT', new Uint8Array(700000))).status, 201);
+  assert.equal((await request(name, '/backup', 'PUT', new Uint8Array(700000))).status, 507);
+  assert.equal((await bucket.head(`${name}/backup`)).size, 700000);
+  assert.equal((await bucket.list({ prefix: `${name}/backup-history/` })).objects.length, 0);
 });

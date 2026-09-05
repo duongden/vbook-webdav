@@ -73,6 +73,7 @@ export class UserStorage {
       return await this.drainDelete() ? new Response(null, { status: 204 }) : this.busy();
     }
     if (action === '/mkcol') {
+      if (key === `${username}/backup-history` || key.startsWith(`${username}/backup-history/`)) return new Response('Backup history is read-only', { status: 403 });
       const directory = key.endsWith('/') ? key : `${key}/`;
       if (await this.env.STORAGE_R2.head(key) || await this.env.STORAGE_R2.head(directory)) {
         return new Response('Collection already exists', { status: 405 });
@@ -81,6 +82,7 @@ export class UserStorage {
       return new Response(null, { status: 201 });
     }
     if (action !== '/put') return new Response('Not Found', { status: 404 });
+    if (key === `${username}/backup-history` || key.startsWith(`${username}/backup-history/`)) return new Response('Backup history is read-only', { status: 403 });
     if (key.endsWith('/')) return new Response('Cannot replace a collection', { status: 405 });
 
     const lengthHeader = request.headers.get('Content-Length');
@@ -98,58 +100,77 @@ export class UserStorage {
 
     const used = await this.usage(username);
     const previous = await this.env.STORAGE_R2.head(key);
-    if (used - (previous?.size || 0) + length > quota) {
+    // The old object stays in history, so each upload consumes its full size.
+    if (used + length > quota) {
       return new Response('Insufficient Storage', { status: 507 });
     }
     const children = await this.env.STORAGE_R2.list({ prefix: `${key}/`, limit: 1 });
     if (children.objects.length) return new Response('Cannot replace a collection', { status: 405 });
 
     await this.state.storage.put('dirty', true);
-    const metadata = { httpMetadata: { contentType: request.headers.get('Content-Type') || 'application/octet-stream' } };
-    let uploaded: R2Object;
-    if (request.body) {
-      // R2 requires a known-length stream; abort atomically if the actual body differs.
-      const stream = new FixedLengthStream(length);
-      const controller = new AbortController();
-      let actual = 0;
-      let lengthMismatch = false;
-      const measured = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, output) {
-          actual += chunk.byteLength;
-          if (actual > length) {
-            lengthMismatch = true;
-            throw new Error('Body length mismatch');
-          }
-          output.enqueue(chunk);
-        },
-        flush() {
-          if (actual !== length) {
-            lengthMismatch = true;
-            throw new Error('Body length mismatch');
-          }
-        },
-      }));
-      const results = await Promise.allSettled([
-        measured.pipeTo(stream.writable, { signal: controller.signal }),
-        this.env.STORAGE_R2.put(key, stream.readable, metadata).catch(error => {
-          // Unblock an outstanding write if R2 rejected before it acquired the reader.
-          void stream.readable.cancel(error).catch(() => undefined);
-          controller.abort(error);
-          throw error;
-        }),
-      ]);
-      const write = results[1];
-      if (lengthMismatch) return new Response('Body length mismatch', { status: 400 });
-      if (controller.signal.aborted && write.status === 'rejected') throw write.reason;
-      if (results[0].status === 'rejected') return new Response('Body length mismatch', { status: 400 });
-      if (write.status === 'rejected') throw write.reason;
-      uploaded = write.value;
-    } else {
-      if (length !== 0) return new Response('Body length mismatch', { status: 400 });
-      uploaded = await this.env.STORAGE_R2.put(key, '', metadata);
+    let historyKey: string | undefined;
+    if (previous) {
+      const timestamp = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().replace('T', '_').replace(/[:.]/g, '-').replace('Z', '_UTC+7');
+      historyKey = `${username}/backup-history/${timestamp}_${crypto.randomUUID()}/${key.substring(username.length + 1)}`;
+      if (new TextEncoder().encode(historyKey).length > 1024) return new Response('Path too long for backup history', { status: 414 });
+      const old = await this.env.STORAGE_R2.get(key);
+      if (!old) throw new Error('Previous backup disappeared');
+      // Finish the durable copy before replacing the live object. Stream without buffering.
+      await this.env.STORAGE_R2.put(historyKey, old.body, { httpMetadata: old.httpMetadata, customMetadata: old.customMetadata });
     }
-    await this.state.storage.put({ usage: used - (previous?.size || 0) + uploaded.size, dirty: false });
-    return new Response(null, { status: 201 });
+    const metadata = { httpMetadata: { contentType: request.headers.get('Content-Type') || 'application/octet-stream' } };
+    let committed = false;
+    try {
+      let uploaded: R2Object;
+      if (request.body) {
+        // R2 requires a known-length stream; abort atomically if the actual body differs.
+        const stream = new FixedLengthStream(length);
+        const controller = new AbortController();
+        let actual = 0;
+        let lengthMismatch = false;
+        const measured = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, output) {
+            actual += chunk.byteLength;
+            if (actual > length) {
+              lengthMismatch = true;
+              throw new Error('Body length mismatch');
+            }
+            output.enqueue(chunk);
+          },
+          flush() {
+            if (actual !== length) {
+              lengthMismatch = true;
+              throw new Error('Body length mismatch');
+            }
+          },
+        }));
+        const results = await Promise.allSettled([
+          measured.pipeTo(stream.writable, { signal: controller.signal }),
+          this.env.STORAGE_R2.put(key, stream.readable, metadata).catch(error => {
+            // Unblock an outstanding write if R2 rejected before it acquired the reader.
+            void stream.readable.cancel(error).catch(() => undefined);
+            controller.abort(error);
+            throw error;
+          }),
+        ]);
+        const write = results[1];
+        if (lengthMismatch) return new Response('Body length mismatch', { status: 400 });
+        if (controller.signal.aborted && write.status === 'rejected') throw write.reason;
+        if (results[0].status === 'rejected') return new Response('Body length mismatch', { status: 400 });
+        if (write.status === 'rejected') throw write.reason;
+        uploaded = write.value;
+      } else {
+        if (length !== 0) return new Response('Body length mismatch', { status: 400 });
+        uploaded = await this.env.STORAGE_R2.put(key, '', metadata);
+      }
+      committed = true;
+      await this.state.storage.put({ usage: used + uploaded.size, dirty: false });
+      return new Response(null, { status: 201 });
+    } finally {
+      // Failed uploads retain the original; remove only the redundant copy from this attempt.
+      // A process crash can leave an extra history copy; dirty accounting recovers it.
+      if (!committed && historyKey) await this.env.STORAGE_R2.delete(historyKey);
+    }
   }
 
   private busy(): Response {

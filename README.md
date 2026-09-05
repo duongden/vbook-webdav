@@ -141,3 +141,12 @@ Tạo khóa ngẫu nhiên bằng `openssl rand -hex 32`, lưu riêng an toàn, r
 Sau khi cấu hình khóa, mật khẩu khi tạo/sửa tài khoản được lưu thêm bằng AES-256-GCM với nonce ngẫu nhiên và ràng buộc username. Admin chọn **Xem mật khẩu**; hộp tự đóng sau 30 giây. API yêu cầu phiên admin và CSRF, không cache; HTML danh sách không chứa mật khẩu hoặc bản mã hóa.
 
 Tài khoản cũ chỉ có hash cần đặt lại mật khẩu một lần; không thể khôi phục mật khẩu từ hash. Nếu chưa cấu hình khóa, việc tạo/đổi mật khẩu vẫn dùng hash như cũ và chưa hỗ trợ xem lại. Sửa quota mà để trống mật khẩu giữ bản mã hóa hiện có. Quyền admin cho phép đọc mật khẩu nên chỉ cấp cho người được phép biết các mật khẩu này.
+
+
+## Lịch sử backup theo ngày giờ
+
+App tiếp tục dùng URL và tên file cũ. Mỗi lần PUT ghi đè thành công, bản trước được giữ trong `backup-history/YYYY-MM-DD_HH-mm-ss-SSS_UTC+7_<id>/<đường dẫn gốc>`. Thời gian là lúc lưu vào lịch sử, theo giờ Việt Nam; ID tránh trùng khi backup liên tiếp. Upload lần đầu chỉ tạo bản hiện tại.
+
+Các bản lịch sử xuất hiện trong danh sách web, tải về hoặc xóa bằng nút hiện có. Không tự xóa theo tuổi hay số lượng. Không cho PUT/MKCOL vào thư mục `backup-history` dành riêng cho server; GET/HEAD/DELETE vẫn được phép. Xóa file hiện tại không xóa lịch sử ở thư mục riêng; xóa toàn bộ tài khoản/toàn bộ thư mục gốc có thể xóa cả lịch sử.
+
+Quota bao gồm cả lịch sử. Khi không đủ chỗ giữ bản cũ và bản mới, upload trả 507 và giữ nguyên dữ liệu; xóa thủ công bản không cần rồi thử lại. Bản sao cũ hoàn tất trước khi thay file hiện tại. Upload lỗi giữ nguyên file cũ và dọn bản sao thừa của lần thử đó; nếu Worker bị ngắt đột ngột có thể còn thêm một bản lịch sử, được tính lại vào quota. Không tự chia nhỏ hay nén thêm nội dung backup.
