@@ -2,6 +2,10 @@
 
 Lưu và quản lý bản sao lưu từ VBook, Legado hoặc ứng dụng hỗ trợ WebDAV. Bạn có thể tìm, tải về và xóa backup bằng trình duyệt trên máy tính hoặc điện thoại.
 
+> Ảnh bên dưới sử dụng tài khoản và file mẫu để minh họa thao tác.
+
+![Giao diện máy tính với thanh điều hướng bên trái và danh sách backup bên phải](docs/images/desktop.png)
+
 ## 1. Kết nối ứng dụng
 
 Bạn cần **địa chỉ WebDAV, tên tài khoản và mật khẩu** do người quản trị cung cấp.
@@ -40,6 +44,10 @@ Trên máy tính, thanh bên trái chứa bộ lọc và thông tin dung lượn
 
 Ngày giờ được hiển thị theo giờ Việt Nam.
 
+### Giao diện trên điện thoại
+
+<img src="docs/images/mobile.png" alt="Giao diện điện thoại với tài khoản và file mẫu" width="320">
+
 ## 3. Tải về và khôi phục
 
 1. Chọn **Bản hiện tại** hoặc **Lịch sử**.
@@ -64,9 +72,13 @@ Khi ứng dụng gửi bản mới vào cùng tên file và thư mục, hệ th�
 - Lịch sử **không tự xóa**. Bạn chủ động chọn những bản không cần giữ nữa.
 - Mỗi bản lưu chiếm dung lượng riêng. Đặt tên theo ngày giờ không làm file nhỏ hơn.
 
+![Chọn Lịch sử để xem các phiên bản backup cũ bằng dữ liệu mẫu](docs/images/history.png)
+
 ## 5. Xóa backup và quản lý dung lượng
 
 Bấm **Xóa** cạnh file, kiểm tra đúng tên rồi xác nhận. File bị xóa không có thùng rác để khôi phục.
+
+<img src="docs/images/delete-dialog.png" alt="Hộp xác nhận xóa file minh họa: kiểm tra tên rồi chọn Xóa tệp hoặc Giữ lại" width="410">
 
 Xóa một bản hiện tại không xóa các phiên bản cũ trong **Lịch sử**. Nếu muốn giải phóng thêm dung lượng, kiểm tra cả hai mục.
 
