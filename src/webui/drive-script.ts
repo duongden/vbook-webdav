@@ -28,8 +28,8 @@ export const driveScript = String.raw`
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   function formatBytes(bytes) {
     if (!bytes) return '0 B';
-    const unit = Math.min(3, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
-    return Number((bytes / 1024 ** unit).toFixed(2)).toLocaleString('vi-VN') + ' ' + ['B', 'KB', 'MB', 'GB'][unit];
+    const unit = Math.min(3, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1000))));
+    return Number((bytes / 1000 ** unit).toFixed(2)).toLocaleString('vi-VN') + ' ' + ['B', 'KB', 'MB', 'GB'][unit];
   }
   const formatDate = value => new Date(value).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 

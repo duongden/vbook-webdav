@@ -301,3 +301,24 @@ test('VBook repeated MKCOL and directory HEAD work with either trailing slash an
   const other = await user('vbook_mkcol_other');
   assert.equal((await request(other, '/vbook-backup', 'HEAD')).status, 404);
 });
+
+test('decimal MB admin limits are exact and legacy limits survive a form save', async () => {
+  const name = await user('decimal_units', 500, 50);
+  const login = await mf.dispatchFetch('https://test.local/admin/login', { method: 'POST', body: new URLSearchParams({ pin }), redirect: 'manual' });
+  const session = login.headers.getSetCookie().find(v => v.startsWith('admin_session=') && !v.includes('Max-Age=0')).split(';')[0];
+  const dashboard = await mf.dispatchFetch('https://test.local/admin', { headers: { Cookie: session } });
+  const csrfCookie = dashboard.headers.getSetCookie().find(v => v.startsWith('csrf_token=')).split(';')[0];
+  const csrf = decodeURIComponent(csrfCookie.slice('csrf_token='.length));
+  const cookie = `${session}; ${csrfCookie}`;
+  const update = (quota, max) => mf.dispatchFetch('https://test.local/admin/user', { method: 'POST', headers: { Cookie: cookie }, body: new URLSearchParams({ username: name, _csrf: csrf, _mode: 'edit', size_unit: 'decimal_mb', quota_mb: quota, max_file_size_mb: max }), redirect: 'manual' });
+  assert.equal((await update('524.288', '52.4288')).status, 302);
+  let record = JSON.parse(await kv.get('user:' + name));
+  assert.equal(record.quota_mb, 500);
+  assert.equal(record.max_file_size_mb, 50);
+  await update('100', '1');
+  record = JSON.parse(await kv.get('user:' + name));
+  assert.equal(record.quota_mb * 1048576, 100000000);
+  assert.equal(record.max_file_size_mb * 1048576, 1000000);
+  assert.equal((await request(name, '/exact', 'PUT', new Uint8Array(1000000))).status, 201);
+  assert.equal((await request(name, '/too-large', 'PUT', new Uint8Array(1000001))).status, 413);
+});

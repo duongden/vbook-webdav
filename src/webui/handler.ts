@@ -33,8 +33,8 @@ export const webuiDataHandler = async (c: Context<AppEnv>) => {
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
-  const unit = Math.min(3, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
-  return `${Number((bytes / 1024 ** unit).toFixed(2)).toLocaleString('vi-VN')} ${['B', 'KB', 'MB', 'GB'][unit]}`;
+  const unit = Math.min(3, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1000))));
+  return `${Number((bytes / 1000 ** unit).toFixed(2)).toLocaleString('vi-VN')} ${['B', 'KB', 'MB', 'GB'][unit]}`;
 }
 
 function formatDate(value: string): string {

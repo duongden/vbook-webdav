@@ -204,9 +204,12 @@ adminApp.get('/', async (c) => {
   const usageMap: Record<string, number> = {};
   for (const user of users) usageMap[user.username] = await getUsage(c.env, user.username);
 
+  // Existing KV fields retain their historical MiB unit; forms use decimal MB.
+  const decimalMB = (mib: number) => Number((mib * 1.048576).toFixed(6));
+
   function fmtBytes(b: number) {
     if (b === 0) return '0 B';
-    const k = 1024, s = ['B','KB','MB','GB'];
+    const k = 1000, s = ['B','KB','MB','GB'];
     const i = Math.floor(Math.log(b) / Math.log(k));
     return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
   }
@@ -240,6 +243,7 @@ adminApp.get('/', async (c) => {
               <h2 id="form-title" class="text-lg font-bold mb-5 text-slate-800">Add New User</h2>
               <form id="user-form" method="POST" action="/admin/user" class="space-y-4">
                 <input type="hidden" name="_csrf" value="${csrf}">
+                <input type="hidden" name="size_unit" value="decimal_mb">
                 <input type="hidden" name="_mode" id="form-mode" value="create">
 
                 <div>
@@ -262,12 +266,12 @@ adminApp.get('/', async (c) => {
                 <div class="grid grid-cols-2 gap-3">
                   <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Quota (MB)</label>
-                    <input id="f-quota" type="number" name="quota_mb" value="500" min="1"
+                    <input id="f-quota" type="number" name="quota_mb" value="500" min="0.000001" step="0.000001"
                       class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm" required>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Max File (MB)</label>
-                    <input id="f-maxfile" type="number" name="max_file_size_mb" value="50" min="1"
+                    <input id="f-maxfile" type="number" name="max_file_size_mb" value="50" min="0.000001" step="0.000001"
                       class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm" required>
                   </div>
                 </div>
@@ -327,15 +331,15 @@ adminApp.get('/', async (c) => {
                           <span class="font-bold text-slate-800">${u.username}</span>
                         </td>
                         <td class="px-4 py-4">
-                          <div class="text-xs text-slate-600 mb-1.5 font-medium">${fmtBytes(usageBytes)} / ${u.quota_mb} MB</div>
+                          <div class="text-xs text-slate-600 mb-1.5 font-medium">${fmtBytes(usageBytes)} / ${decimalMB(u.quota_mb).toLocaleString('vi-VN')} MB</div>
                           <div class="bar-track w-28 shadow-inner">
                             <div class="bar-fill" style="width:${pct}%;background:${barColor}"></div>
                             </div></details>
                           </div>
                         </td>
                         <td class="px-4 py-4 text-xs text-slate-500">
-                          <div class="mb-0.5">Quota: <span class="font-medium text-slate-700">${u.quota_mb} MB</span></div>
-                          <div>Max file: <span class="font-medium text-slate-700">${u.max_file_size_mb} MB</span></div>
+                          <div class="mb-0.5">Quota: <span class="font-medium text-slate-700">${decimalMB(u.quota_mb).toLocaleString('vi-VN')} MB</span></div>
+                          <div>Max file: <span class="font-medium text-slate-700">${decimalMB(u.max_file_size_mb).toLocaleString('vi-VN')} MB</span></div>
                         </td>
                         <td class="px-4 py-4">
                           <span class="text-xs px-2.5 py-1 rounded-full font-bold shadow-sm
@@ -351,7 +355,7 @@ adminApp.get('/', async (c) => {
                             <button type="button" class="btn btn-edit" data-username="${u.username}" onclick="viewPassword(this)">Mật khẩu</button>
                             <details class="account-menu"><summary class="btn">Thao tác</summary><div class="account-menu-items">
                             <button type="button" class="btn btn-edit shadow-sm"
-                              onclick="editUser(${JSON.stringify(u.username)}, ${u.quota_mb}, ${u.max_file_size_mb}, '${u.status}')">
+                              onclick="editUser(${JSON.stringify(u.username)}, ${decimalMB(u.quota_mb)}, ${decimalMB(u.max_file_size_mb)}, '${u.status}')">
                               Sửa thông tin
                             </button>
 
@@ -499,9 +503,18 @@ adminApp.post('/user', async (c) => {
   const username = typeof body['username'] === 'string' ? body['username'].trim() : '';
   const password = typeof body['password'] === 'string' ? body['password'] : '';
   const mode     = body['_mode'] as string || 'create';
-  const quota = Number(body['quota_mb']);
-  const maxSize = Number(body['max_file_size_mb']);
-  if (!Number.isSafeInteger(quota) || quota <= 0 || !Number.isSafeInteger(maxSize) || maxSize <= 0) {
+  let quota = Number(body['quota_mb']);
+  let maxSize = Number(body['max_file_size_mb']);
+  if (body['size_unit'] === 'decimal_mb') {
+    const quotaBytes = Math.round(quota * 1_000_000);
+    const maxBytes = Math.round(maxSize * 1_000_000);
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes <= 0 || !Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+      return c.redirect('/admin?err=Invalid+MB+limits');
+    }
+    quota = quotaBytes / 1_048_576;
+    maxSize = maxBytes / 1_048_576;
+  } else if (!Number.isSafeInteger(quota) || quota <= 0 || !Number.isSafeInteger(maxSize) || maxSize <= 0) {
+    // Accept an already-open legacy form using its original unit.
     return c.redirect('/admin?err=Quota+and+file+size+must+be+positive+integers');
   }
   if (mode !== 'create' && mode !== 'edit') return c.text('Invalid mode', 400);

@@ -100,7 +100,7 @@ Mở `https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/admin`, đăng nhập bằn
 | Max File | Dung lượng tối đa của mỗi lần upload |
 | Password khi sửa | Để trống nếu muốn giữ mật khẩu hiện tại |
 
-Các ô đang ghi MB nhưng tính theo **MiB** (1 MiB = 1.048.576 byte). Ví dụ backup khoảng 76,5 MB có thể đặt Max File là `95`; quota cần đủ cho số bản muốn giữ. Server vẫn giới hạn mỗi upload ở **100.000.000 byte**, dù đặt Max File cao hơn.
+Giao diện nhập và hiển thị theo **MB/GB thập phân**: 1 MB = 1.000.000 byte; 1 GB = 1.000 MB. Ví dụ backup 76,5 MB có thể đặt Max File là `95`; quota cần đủ cho số bản muốn giữ. Server giới hạn mỗi upload ở **100 MB**, dù đặt Max File cao hơn. Tài khoản cũ giữ nguyên dung lượng thực tế khi nâng cấp; chỉ đổi cách hiển thị sang MB (ví dụ 500 MiB cũ hiển thị 524,288 MB).
 
 ### Xem lại mật khẩu
 
