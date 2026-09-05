@@ -1,21 +1,19 @@
 import { Hono } from 'hono';
-import { Env } from './types';
+import { AppEnv } from './types';
 import { adminApp } from './webui/admin';
 import { userAuthMiddleware } from './middleware/auth';
-import { quotaMiddleware } from './middleware/quota';
 import { webdavHandler } from './webdav/handler';
 import { webuiHandler } from './webui/handler';
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AppEnv>();
 
 // 1. Mount Admin Dashboard (No basic auth required, uses PIN cookie)
 app.route('/admin', adminApp);
+app.all('/admin', (c) => c.notFound());
+app.all('/admin/*', (c) => c.notFound());
 
 // 2. Apply Basic Auth for all other routes
 app.use('*', userAuthMiddleware);
-
-// 3. Apply Quota middleware (only affects PUT)
-app.use('*', quotaMiddleware);
 
 // 4. Main Router (Device Recognition)
 app.all('*', async (c) => {
@@ -33,3 +31,4 @@ app.all('*', async (c) => {
 });
 
 export default app;
+export { UserStorage } from './storage/user-storage';

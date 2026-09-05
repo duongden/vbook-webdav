@@ -1,101 +1,97 @@
-# ☁️ VBook WebDAV Cloud
+# VBook WebDAV Cloud
 
-![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)
-![HonoJS](https://img.shields.io/badge/Hono-v4-E36002?logo=hono&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-Ready-3178C6?logo=typescript&logoColor=white)
+Server WebDAV chạy trên Cloudflare Workers, lưu file trong R2, tài khoản trong KV và quản lý dung lượng bằng SQLite-backed Durable Objects. Có giao diện file cá nhân và trang quản trị `/admin`.
 
-**VBook WebDAV Cloud** là một giải pháp Serverless toàn diện chạy trên hạ tầng **Cloudflare Workers**, cung cấp giao thức **WebDAV** và giao diện quản lý **Web UI (Fake Cloud Drive)** cực kỳ nhẹ và hoàn toàn miễn phí. 
+## Chức năng
 
-Được thiết kế đặc biệt để phục vụ nhu cầu đồng bộ, sao lưu truyện từ các ứng dụng như **VBook** hoặc **Legado** với khả năng vận hành 24/7 và chi phí **0đ**.
+- Cách ly dữ liệu theo username; mọi thao tác file đều cần Basic Auth.
+- Các phương thức `OPTIONS`, `GET`, `HEAD`, `PUT`, `DELETE`, `MKCOL`, `PROPFIND` (Depth 0/1). Đây là tập con WebDAV; chưa hỗ trợ `LOCK`, `UNLOCK`, `MOVE`, `COPY` hay đầy đủ mọi yêu cầu RFC.
+- Upload theo stream, giới hạn kích thước file và quota theo user. Mỗi user có một Durable Object tuần tự hóa thao tác ghi; không dùng KV làm bộ đếm dung lượng.
+- Liệt kê phân trang R2, hỗ trợ dấu tiếng Việt, khoảng trắng, ký tự `#`, `?`, `%` trong tên file.
+- Xóa thư mục theo lô, gồm cả đường dẫn không có `/` cuối. Công việc xóa được lưu bền vững và có alarm để tiếp tục nếu gián đoạn.
+- File tải xuống được trả dưới dạng attachment, kèm `nosniff` và CSP sandbox để tránh chạy HTML/JavaScript trên tên miền admin.
+- Trang admin hỗ trợ thêm/sửa/khóa/xóa user, có CSRF và cookie phiên `HttpOnly`, `Secure`, `SameSite=Strict`; phiên hết hạn sau 8 giờ. Thiếu `ADMIN_PIN` thì admin trả 503.
 
----
+## Cài đặt
 
-## ✨ Tính Năng Nổi Bật (Features)
+Cần Node.js 22 trở lên, tài khoản Cloudflare đã bật R2, một bucket R2 và một namespace KV. SQLite-backed Durable Objects có trên Workers Free; hạn mức và khả năng phát sinh phí phụ thuộc gói sử dụng, không bảo đảm mọi tải đều miễn phí.
 
-*   **🔒 Multi-user Isolation:** Hỗ trợ nhiều người dùng chung một Server URL nhưng mọi file được cách ly tự động. File của ai người nấy quản lý, không lo ghi đè (`/${username}/...`).
-*   **🛡️ Anti-Abuse Quota System:** Tính năng bảo vệ dung lượng thông minh. Chặn đứng các file tải lên vượt giới hạn kích thước (Max File Size) hoặc khi tổng dung lượng người dùng vượt mức (Quota).
-*   **⚡ WebDAV Chuẩn:** Hỗ trợ đầy đủ các phương thức `PROPFIND`, `MKCOL`, `PUT`, `GET`, `DELETE`, `OPTIONS`. Hoạt động trơn tru với tính năng *Kiểm tra* và *Đồng bộ* của VBook.
-*   **🌐 Fake Cloud Drive UI:** Tự động nhận diện truy cập từ trình duyệt để hiển thị giao diện Quản lý File tĩnh cực sang trọng với Dark Mode (sử dụng Tailwind CSS).
-*   **🔑 Secret Admin Dashboard:** Giao diện quản trị ẩn chỉ truy cập bằng mã PIN, cho phép Thêm/Sửa/Xoá User và set Quota trực tiếp ngay trên điện thoại mà không cần dùng lệnh CLI.
-*   **🚀 Zero-cost & High Performance:** Tận dụng tối đa Free Tier của Cloudflare (100k Request/ngày, R2 10GB, KV Storage). Tối ưu hóa stream chống tự động nén (Gzip interference) để tối đa tốc độ tải xuống.
-
----
-
-## 🚀 Hướng Dẫn Cài Đặt (Quick Start)
-
-Yêu cầu chuẩn bị: Bạn cần có một tài khoản [Cloudflare](https://dash.cloudflare.com) và đã bật tính năng R2 Storage.
-
-### 1. Cấu hình Cloudflare
-1. Vào Cloudflare Dashboard, mục **R2** và tạo một Bucket mới (ví dụ: `vbook-backup-bucket`).
-2. Vào **Workers & Pages -> KV** và tạo một Namespace mới (ví dụ: `USER_KV`). Lấy ID của Namespace đó.
-
-### 2. Cài đặt dự án
-Clone dự án về máy tính của bạn:
-```bash
-git clone https://github.com/your-username/vbook-webdav.git
+```sh
+git clone https://github.com/duongden/vbook-webdav.git
 cd vbook-webdav
-npm install
+npm ci
+cp config/wrangler.example.jsonc wrangler.jsonc
 ```
 
-### 3. Cấu hình Biến môi trường
-Mở thư mục dự án, đổi tên file `wrangler.example.jsonc` thành `wrangler.jsonc` và cập nhật thông tin của bạn:
+Điền `USER_KV.id` và `STORAGE_R2.bucket_name` trong `wrangler.jsonc`. Giữ binding `USER_STORAGE` và migration `user-storage-v1` để Cloudflare tạo lớp `UserStorage` với SQLite.
+
+Đặt mã quản trị dài, khó đoán bằng secret (không commit mã vào source):
+
+```sh
+npx wrangler secret put ADMIN_PIN
+```
+
+Để chạy local, tạo `.dev.vars` chứa `ADMIN_PIN="ma-quan-tri-local"`; file này được Git bỏ qua. `npm run dev` dùng dữ liệu R2/KV/DO local. Cookie admin có `Secure`, vì vậy dùng HTTPS khi kiểm thử giao diện admin trong trình duyệt.
+
+```sh
+npm run check
+npm run dev
+# Khi đã sẵn sàng triển khai:
+npm run deploy
+```
+
+## Nâng cấp từ phiên bản KV quota cũ
+
+1. Sao lưu source, `wrangler.jsonc`, các secret local và dữ liệu R2/KV riêng trước khi triển khai. Backup source không thay thế backup dữ liệu Cloudflare.
+2. Thêm phần dưới đây vào cấu hình hiện tại, giữ nguyên binding R2/KV và secret:
+
 ```jsonc
-{
-  "vars": {
-    "ADMIN_PIN": "123456" // Đổi mã PIN bí mật của bạn tại đây
-  },
-  "kv_namespaces": [
-    {
-      "binding": "USER_KV",
-      "id": "<ID_KV_CỦA_BẠN>" // Dán ID KV vào đây
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "STORAGE_R2",
-      "bucket_name": "vbook-backup-bucket" // Tên Bucket R2 của bạn
-    }
-  ]
-}
+"durable_objects": {
+  "bindings": [{ "name": "USER_STORAGE", "class_name": "UserStorage" }]
+},
+"migrations": [
+  { "tag": "user-storage-v1", "new_sqlite_classes": ["UserStorage"] }
+]
 ```
 
-### 4. Deploy lên Cloudflare
-Triển khai hệ thống chỉ với 1 lệnh duy nhất:
-```bash
-npx wrangler deploy
-```
+Nếu đã có migration khác, thêm mục mới vào mảng hiện có; không xóa lịch sử migration.
 
----
+3. Chạy `npm ci`, `npm run check`, sau đó deploy khi đã sẵn sàng. Không đổi tên/xóa migration đã triển khai.
+4. Không cần chuyển file: vẫn giữ R2 key `username/...` và KV key `user:username`. Counter `usage:username` cũ không còn được dùng. Lần đầu cần dung lượng, Durable Object tính lại từ R2; các upload tiếp theo cập nhật counter đã tuần tự hóa.
+5. Phiên admin cũ không còn hợp lệ, cần đăng nhập lại. Tài khoản plaintext cũ được nâng cấp sang PBKDF2 khi đăng nhập thành công. Username hợp lệ gồm chữ ASCII, số, `_`, `-`, dài tối đa 128 ký tự; tài khoản cũ có tên khác cần di chuyển riêng.
 
-## 📱 Hướng Dẫn Sử Dụng
+Không chạy đồng thời phiên bản cũ và mới cùng ghi một bucket. Không ghi/xóa trực tiếp qua R2 ngoài ứng dụng sau khi counter được tạo; thay đổi ngoài luồng cần đối soát dung lượng trước khi tiếp tục áp quota.
 
-### Quản trị User (Dành cho Admin)
-Truy cập đường dẫn bí mật: `https://<ten-worker>.workers.dev/admin`
-1. Nhập mã PIN (Cấu hình trong `ADMIN_PIN`).
-2. Thêm Username mới, thiết lập Mật khẩu, Dung lượng tối đa (Quota MB).
+## Sử dụng với VBook / Legado
 
-### Cấu hình trên Ứng dụng VBook / Legado
-Mở ứng dụng đọc truyện của bạn, vào phần **Đồng bộ & Sao lưu -> WebDAV**:
-*   **URL:** `https://<ten-worker>.workers.dev` (Hoặc có thể thêm `/webdav` phía sau đều được hỗ trợ).
-*   **Tên (Username):** Username vừa tạo ở trang Admin.
-*   **Mật khẩu:** Mật khẩu tương ứng.
-*   **Thư mục gốc:** `vbook_backup` (Khuyến nghị giữ nguyên).
+- URL: `https://<worker>.workers.dev` hoặc thêm `/webdav`.
+- Username/password: tài khoản do admin tạo, không dùng mã admin.
+- Thư mục gốc: ví dụ `vbook_backup`.
+- Luôn dùng HTTPS. Basic Auth chỉ mã hóa Base64, không mã hóa bí mật đường truyền.
 
-Bấm **Kiểm tra** để thấy chữ xanh và lưu lại!
+Mở `/` bằng trình duyệt để xem danh sách và tải/xóa file; mở `/admin` để quản trị.
 
-### Quản lý File cá nhân (Fake Cloud Drive)
-Bất cứ lúc nào, bạn (hoặc bạn bè) có thể dùng trình duyệt trên điện thoại/máy tính mở `https://<ten-worker>.workers.dev`.
-Hệ thống sẽ hỏi mật khẩu (Basic Auth). Đăng nhập bằng tài khoản VBook ở trên để xem danh sách File, tải về hoặc xóa trực tiếp với giao diện trực quan.
+## Dung lượng và xử lý lỗi
 
----
+- Quota và giới hạn file trong giao diện được nhập theo MiB (1.048.576 byte). Server cũng giới hạn mỗi upload ở 100.000.000 byte. Giới hạn request ở Cloudflare Edge phụ thuộc gói tài khoản.
+- PUT bắt buộc có `Content-Length`; thiếu trả **411**, vượt kích thước file trả **413**, vượt tổng quota trả **507**. Body thực tế không khớp kích thước khai báo bị từ chối. Client chỉ gửi chunked upload không có độ dài cần đổi cấu hình/client.
+- Khi xóa còn nhiều trang dữ liệu, server trả **503** kèm `Retry-After: 30`, không báo thành công sớm. Alarm tiếp tục công việc; thử DELETE lại sau. Các lượt ghi cùng user tạm chờ hoặc bị từ chối khi xóa còn pending.
+- Xóa user chỉ báo hoàn tất sau khi xóa sạch file. Storage của user bị khóa để các request còn dùng thông tin KV cũ không ghi lại dữ liệu trong lúc xóa.
+- KV giữ tài khoản có eventual consistency: đổi mật khẩu/khóa tài khoản có thể chưa xuất hiện ngay ở mọi vùng; không cam kết 1–5 giây.
+- UI vẫn list R2 để hiển thị file; chỉ phần tính quota không quét toàn bucket ở mỗi upload. Khi khởi tạo hoặc phục hồi mutation bị gián đoạn, hệ thống cần quét lại R2.
+- PBKDF2 giữ 1.000 vòng của phiên bản trước để tương thích ngân sách CPU. Đây là mức thấp đối với tấn công offline; không có cam kết “loại bỏ hoàn toàn CPU timeout”. Nên dùng mật khẩu dài, duy nhất và bảo vệ quyền truy cập KV.
 
-## 🛠️ Công Nghệ Sử Dụng (Tech Stack)
-*   **[HonoJS](https://hono.dev/):** Web Framework siêu nhẹ, nhanh và được tối ưu hóa cho Edge computing.
-*   **[Cloudflare Workers](https://workers.cloudflare.com/):** Nền tảng Serverless mạnh mẽ.
-*   **[Cloudflare R2](https://developers.cloudflare.com/r2/):** Lưu trữ S3-compatible miễn phí 10GB.
-*   **[Cloudflare KV](https://developers.cloudflare.com/kv/):** Cơ sở dữ liệu Key-Value phân tán lưu trữ tài khoản người dùng siêu tốc.
-*   **[Tailwind CSS](https://tailwindcss.com/):** Thư viện Utility-first CSS được tích hợp thông qua CDN cho giao diện Cloud Drive.
+## Kiểm thử và backup local
 
-## 📄 Giấy phép (License)
-Dự án được phân phối dưới giấy phép MIT. Xem file `LICENSE` để biết thêm chi tiết.
+`npm run check` chạy TypeScript strict và test. Test tích hợp dùng Miniflare/workerd với R2, KV và SQLite-backed DO cục bộ; không gọi tài nguyên Cloudflare production. Có test upload đồng thời, overwrite, quota, phân trang >1.000 file, tên đặc biệt, admin/CSRF và fault injection cho việc xóa/stream bị gián đoạn.
+
+`.local-backups/` chỉ dành cho backup riêng trên máy. Không commit, push, deploy hay đính kèm thư mục này vào artifact. Worker chỉ bundle entrypoint trong `src`; không cấu hình static assets trỏ vào thư mục gốc dự án.
+
+## Tham khảo
+
+- [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
+- [Durable Objects](https://developers.cloudflare.com/durable-objects/)
+- [KV consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/)
+- [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+
+Giấy phép MIT, xem [LICENSE](LICENSE).

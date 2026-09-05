@@ -1,5 +1,7 @@
 import { Context } from 'hono';
-import { Env, UserConfig } from '../types';
+import { AppEnv } from '../types';
+import { requestObjectKey, encodePath, validUsername } from '../utils/path';
+import { storageRequest } from '../storage/client';
 
 function formatHTTPDate(date: Date) {
   return date.toUTCString();
@@ -17,26 +19,34 @@ function escapeXML(str: string) {
             .replace(/'/g, '&apos;');
 }
 
-async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username: string } }>) {
+async function handlePropfind(c: Context<AppEnv>) {
   const username = c.get('username');
-  let path = c.req.path.replace(/^\/webdav/, '');
-  if (!path.startsWith('/')) path = '/' + path;
-  
+  const sanitized = requestObjectKey(username, c.req.url);
+  if (sanitized === null) {
+    return c.text('Forbidden', 403);
+  }
+
   const depth = c.req.header('Depth') || '1';
-  const prefix = path === '/' ? `${username}/` : `${username}${path.endsWith('/') ? path : path + '/'}`;
-  const filePrefix = path === '/' ? `${username}/` : `${username}${path}`;
-  
+  if (depth !== '0' && depth !== '1') {
+    return c.body('<D:error xmlns:D="DAV:"><D:propfind-finite-depth/></D:error>', 403, { 'Content-Type': 'application/xml' });
+  }
+  const prefix = sanitized.endsWith('/') ? sanitized : sanitized + '/';
+  const filePrefix = sanitized;
   let xml = `<?xml version="1.0" encoding="utf-8" ?>\n`;
   xml += `<D:multistatus xmlns:D="DAV:">\n`;
 
   // For Depth 0 or 1, we always need the root element of the request
-  const isRoot = path === '/';
-  
+  const isRoot = sanitized === `${username}/`;
+
   // If not root, check if it's a file or directory
-  let isDirectory = path.endsWith('/') || isRoot;
+  let isDirectory = sanitized.endsWith('/') || isRoot;
   let rootSize = 0;
   let rootLastModified = new Date();
-  
+
+  if (isDirectory && !isRoot) {
+    const exists = await c.env.STORAGE_R2.list({ prefix, limit: 1 });
+    if (!exists.objects.length) return c.text('Not Found', 404);
+  }
   if (!isDirectory) {
     const obj = await c.env.STORAGE_R2.head(filePrefix);
     if (obj) {
@@ -74,24 +84,40 @@ async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username:
     return res;
   };
 
-  const reqHref = c.req.path;
+  const requestPath = new URL(c.req.url).pathname;
+  const mount = /^\/webdav(?:\/|$)/.test(requestPath) ? '/webdav' : '';
+  const relative = sanitized.substring(username.length);
+  const reqHref = mount + encodePath(relative) + (isDirectory && !relative.endsWith('/') ? '/' : '');
   xml += renderResponse(reqHref, isDirectory, rootSize, rootLastModified);
 
   if (depth === '1' && isDirectory) {
-    const list = await c.env.STORAGE_R2.list({ prefix, delimiter: '/' });
-    
+    let listOptions: R2ListOptions = { prefix, delimiter: '/' };
+    let listed;
+    const allPrefixes = [];
+    const allObjects = [];
+
+    do {
+      listed = await c.env.STORAGE_R2.list(listOptions);
+      allPrefixes.push(...listed.delimitedPrefixes);
+      allObjects.push(...listed.objects);
+      listOptions.cursor = listed.truncated ? listed.cursor : undefined;
+    } while (listed.truncated);
+
     // Add subdirectories
-    for (const subPrefix of list.delimitedPrefixes) {
-      const dirName = subPrefix.substring(prefix.length);
-      const subHref = reqHref.endsWith('/') ? `${reqHref}${dirName}` : `${reqHref}/${dirName}`;
+    for (const subPrefix of allPrefixes) {
+      const dirName = subPrefix.substring(prefix.length); // e.g. "my folder/"
+      const cleanDirName = dirName.endsWith('/') ? dirName.slice(0, -1) : dirName;
+      const encodedDirName = encodeURIComponent(cleanDirName) + '/';
+      const subHref = reqHref.endsWith('/') ? `${reqHref}${encodedDirName}` : `${reqHref}/${encodedDirName}`;
       xml += renderResponse(subHref, true, 0, new Date());
     }
 
     // Add files
-    for (const obj of list.objects) {
+    for (const obj of allObjects) {
       if (obj.key === prefix) continue; // skip the folder itself if it exists as an object
-      const fileName = obj.key.substring(prefix.length);
-      const subHref = reqHref.endsWith('/') ? `${reqHref}${fileName}` : `${reqHref}/${fileName}`;
+      const fileName = obj.key.substring(prefix.length); // e.g. "my file.txt"
+      const encodedFileName = encodeURIComponent(fileName);
+      const subHref = reqHref.endsWith('/') ? `${reqHref}${encodedFileName}` : `${reqHref}/${encodedFileName}`;
       xml += renderResponse(subHref, false, obj.size, obj.uploaded);
     }
   }
@@ -101,17 +127,18 @@ async function handlePropfind(c: Context<{ Bindings: Env; Variables: { username:
   return c.body(xml, 207);
 }
 
-export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { username: string } }>) => {
+export const webdavHandler = async (c: Context<AppEnv>) => {
   const method = c.req.method;
   const username = c.get('username');
-  let path = c.req.path.replace(/^\/webdav/, '');
-  if (!path.startsWith('/')) path = '/' + path;
-  
-  const objectKey = path === '/' ? `${username}/` : `${username}${path}`;
+  if (!validUsername(username || '') || !c.get('user')) return c.text('Unauthorized', 401);
+  const objectKey = requestObjectKey(username, c.req.url);
+  if (objectKey === null) {
+    return c.text('Forbidden', 403);
+  }
 
   if (method === 'OPTIONS') {
     c.header('Allow', 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND');
-    c.header('DAV', '1, 2');
+    c.header('DAV', '1');
     return c.text('', 200);
   }
 
@@ -119,60 +146,35 @@ export const webdavHandler = async (c: Context<{ Bindings: Env; Variables: { use
     return handlePropfind(c);
   }
 
-  if (method === 'MKCOL') {
-    // In R2, we don't strictly need to create directories, but we can put an empty object with a trailing slash
-    let dirKey = objectKey;
-    if (!dirKey.endsWith('/')) dirKey += '/';
-    await c.env.STORAGE_R2.put(dirKey, '');
-    return c.text('Created', 201);
-  }
-
-  if (method === 'PUT') {
-    const body = c.req.raw.body;
-    await c.env.STORAGE_R2.put(objectKey, body, {
-      httpMetadata: {
-        contentType: c.req.header('Content-Type') || 'application/octet-stream'
-      }
+  if (method === 'MKCOL' || method === 'PUT' || method === 'DELETE') {
+    return storageRequest(c.env, username, method === 'MKCOL' ? 'mkcol' : method.toLowerCase(), {
+      key: objectKey, request: c.req.raw, user: c.get('user'),
     });
-    return c.text('Created', 201);
   }
 
   if (method === 'GET' || method === 'HEAD') {
-    const obj = await c.env.STORAGE_R2.get(objectKey);
+    const obj = method === 'HEAD' ? await c.env.STORAGE_R2.head(objectKey) : await c.env.STORAGE_R2.get(objectKey);
     if (!obj) {
       return c.text('Not Found', 404);
     }
-    
+
     const headers = new Headers();
-    if (obj.httpMetadata?.contentType) {
-      headers.set('Content-Type', obj.httpMetadata.contentType);
-    } else {
-      headers.set('Content-Type', 'application/octet-stream');
-    }
+    const filename = objectKey.split('/').pop() || 'download';
+    const encodedName = encodeURIComponent(filename).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+    headers.set('Content-Type', 'application/octet-stream');
+    headers.set('Content-Disposition', `attachment; filename="download"; filename*=UTF-8''${encodedName}`);
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
+    headers.set('ETag', obj.httpEtag);
+    headers.set('Last-Modified', obj.uploaded.toUTCString());
     headers.set('Content-Length', obj.size.toString());
     // CRITICAL: Prevent Cloudflare from auto-compressing and breaking Content-Length
-    headers.set('Cache-Control', 'no-transform');
-    
+    headers.set('Cache-Control', 'private, no-store, no-transform');
+
     if (method === 'HEAD') {
       return new Response(null, { headers, status: 200 });
     }
-    return new Response(obj.body as ReadableStream, { headers, status: 200 });
-  }
-
-  if (method === 'DELETE') {
-    await c.env.STORAGE_R2.delete(objectKey);
-    // Note: To perfectly mimic a directory delete, we should delete all objects with this prefix.
-    // For VBook, simple object delete might be enough, but let's implement prefix delete just in case.
-    if (objectKey.endsWith('/')) {
-      const list = await c.env.STORAGE_R2.list({ prefix: objectKey });
-      const keys = list.objects.map(o => o.key);
-      if (keys.length > 0) {
-        // Cloudflare R2 currently requires deleting one by one or in batches.
-        // For simplicity and to avoid limits in a single request, we do a loop (since usually few files).
-        await Promise.all(keys.map(k => c.env.STORAGE_R2.delete(k)));
-      }
-    }
-    return c.text('No Content', 204);
+    return new Response((obj as R2ObjectBody).body, { headers, status: 200 });
   }
 
   return c.text('Method Not Allowed', 405);

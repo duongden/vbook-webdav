@@ -1,0 +1,36 @@
+// Copy this file to wrangler.jsonc in the project root.
+// Set ADMIN_PIN with: npx wrangler secret put ADMIN_PIN
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vbook-webdav",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-20",
+  "kv_namespaces": [
+    {
+      "binding": "USER_KV",
+      "id": "YOUR_KV_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "STORAGE_R2",
+      "bucket_name": "YOUR_BUCKET_NAME"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "USER_STORAGE",
+        "class_name": "UserStorage"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "user-storage-v1",
+      "new_sqlite_classes": [
+        "UserStorage"
+      ]
+    }
+  ]
+}
