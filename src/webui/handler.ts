@@ -79,15 +79,19 @@ export const webuiHandler = async (c: Context<AppEnv>) => {
     <div class="account"><span class="avatar" aria-hidden="true">${username.charAt(0).toUpperCase()}</span><span class="account-name" title="${username}">${username}</span></div>
   </div></header>
   <main class="shell" id="drive" data-usage="${usageBytes}" data-quota="${quotaBytes}">
-    <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">Không gian lưu trữ cá nhân</p><h1 id="page-title">Tệp của tôi</h1><p class="subtitle">Các bản sao lưu từ VBook và Legado, gọn gàng ở một nơi.</p></div><span class="connection"><span class="dot"></span>WebDAV</span></section>
+    <aside class="drive-sidebar" aria-label="Điều hướng và dung lượng"><p class="sidebar-label">Kho lưu trữ</p>
+      <div class="backup-filters" role="group" aria-label="Loại bản sao lưu"><button type="button" class="btn" data-backup-filter="all" aria-pressed="true">Tất cả</button><button type="button" class="btn" data-backup-filter="current" aria-pressed="false">Bản hiện tại</button><button type="button" class="btn" data-backup-filter="history" aria-pressed="false">Lịch sử</button></div>
     <section class="stats" aria-label="Tổng quan lưu trữ">
       <div class="stat"><div class="stat-title"><span>Dung lượng đã dùng</span><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"/></svg></div><div class="stat-value"><span id="usage-value">${formatBytes(usageBytes)}</span> <small>/ <span id="quota-value">${formatBytes(quotaBytes)}</span></small></div><div class="meter" role="progressbar" aria-label="Dung lượng đã dùng" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><div class="meter-fill" style="width:${percent}%"></div></div><div class="stat-note" id="usage-note">Còn ${formatBytes(Math.max(0, quotaBytes - usageBytes))} trống</div></div>
       <div class="stat"><div class="stat-title"><span>Tổng số tệp</span>${fileIcon}</div><div class="stat-value" id="total-files">${files.length.toLocaleString('vi-VN')}</div><div class="stat-note">Trong kho lưu trữ của bạn</div></div>
       <div class="stat"><div class="stat-title"><span>Tệp mới nhất</span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div class="stat-value stat-date" id="latest-file">${files.length ? formatDate(files[0].uploaded) : 'Chưa có tệp'}</div><div class="stat-note">Ngày tải lên gần nhất</div></div>
     </section>
+    </aside>
+    <div class="drive-main">
+    <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">Không gian lưu trữ cá nhân</p><h1 id="page-title">Tệp của tôi</h1><p class="subtitle">Các bản sao lưu từ VBook và Legado, gọn gàng ở một nơi.</p></div><span class="connection"><span class="dot"></span>WebDAV</span></section>
     <section class="files-panel" aria-labelledby="files-title">
       <div class="panel-heading"><div class="panel-title"><h2 id="files-title">Tất cả tệp</h2><span class="count" id="file-count">${files.length}</span></div><button type="button" class="btn" id="refresh-files"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Làm mới</span></button></div>
-      <div class="backup-filters" role="group" aria-label="Loại bản sao lưu"><button type="button" class="btn" data-backup-filter="all" aria-pressed="true">Tất cả</button><button type="button" class="btn" data-backup-filter="current" aria-pressed="false">Bản hiện tại</button><button type="button" class="btn" data-backup-filter="history" aria-pressed="false">Lịch sử</button></div>
+
       <div class="toolbar"><label class="search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="visually-hidden">Tìm theo tên tệp hoặc thư mục</span><input id="search-files" type="search" placeholder="Tìm theo tên tệp hoặc thư mục…" autocomplete="off"></label><label class="visually-hidden" for="sort-files">Sắp xếp tệp</label><select id="sort-files"><option value="newest">Mới nhất trước</option><option value="name">Tên: A → Z</option><option value="largest">Dung lượng lớn nhất</option></select></div>
       <div class="list-heading" aria-hidden="true"><span>Tên tệp</span><span>Dung lượng</span><span class="date-heading">Ngày tải lên</span><span>Thao tác</span></div>
       <div id="file-list">${files.map(fileRow)}</div>
@@ -96,6 +100,7 @@ export const webuiHandler = async (c: Context<AppEnv>) => {
     </section>
     <p class="footnote"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Các tệp được lưu riêng theo tài khoản.</p>
     <noscript><p>Bật JavaScript để tìm kiếm, làm mới danh sách và xóa tệp. Bạn vẫn có thể tải tệp bằng các liên kết phía trên.</p></noscript>
+    </div>
   </main>
   <template id="file-template">${fileRow({ name: '', size: 0, uploaded: '1970-01-01T00:00:00.000Z' })}</template>
   <dialog id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description"><div class="dialog-icon">${deleteIcon}</div><h2 id="delete-title">Xóa tệp này?</h2><p id="delete-description">Tệp sẽ được xóa khỏi kho lưu trữ. Thao tác này không thể hoàn tác.</p><strong id="delete-name" class="delete-name"></strong><div class="dialog-actions"><button type="button" class="btn" id="cancel-delete" autofocus>Giữ lại</button><button type="button" class="btn btn-remove" id="confirm-delete">Xóa tệp</button></div></dialog>
