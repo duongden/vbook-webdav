@@ -33,4 +33,8 @@ dialog{border:1px solid var(--line);border-radius:var(--radius-dialog);padding:2
 
 /* Share desktop grid rows so sidebar and file panel end at the same baseline. */
 @media(min-width:801px){.shell{row-gap:18px}.drive-main{display:contents}.drive-main .intro{grid-column:2;grid-row:1;margin:0}.drive-main .files-panel{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-width:0}.drive-main .panel-footer{margin-top:auto}.drive-main .footnote{grid-column:2;grid-row:3;margin:0}.drive-main noscript{grid-column:2}.drive-sidebar{grid-column:1;grid-row:1 / 3;position:static;align-self:stretch;display:flex;flex-direction:column}.drive-sidebar .stats{margin-top:auto}.drive-sidebar .backup-filters{flex-shrink:0}}
+
+.folder-panel{padding:12px 20px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.folder-panel summary{cursor:pointer}.folder-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;max-height:180px;overflow:auto}.folder-target{max-width:100%;overflow-wrap:anywhere;text-align:left}
+.panel-actions #new-folder{flex:0 0 42px;width:42px;padding:0}
 `;

@@ -94,7 +94,7 @@ test('browser upload stores a library file through the quota-aware PUT path', { 
   const { page, username } = await openDrive(t, { files: [] });
   await page.getByRole('button', { name: 'Tải tệp lên', exact: true }).click();
   await page.getByRole('dialog').screenshot({ path: '/tmp/vbook-upload-dialog.png' });
-  await page.getByLabel('Thư mục dưới library/').fill('Tiên Hiệp');
+  await page.getByLabel('Thư mục đích').fill('library/Tiên Hiệp');
   await page.locator('#upload-files').setInputFiles({ name: 'Sách mới.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('epub-data') });
   await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
   await waitText(page, 'upload-status', 'Đã tải lên 1 tệp');
@@ -106,7 +106,7 @@ test('browser upload stores a library file through the quota-aware PUT path', { 
 test('drag and drop selects and uploads multiple library files', { timeout: 20000 }, async t => {
   const { page, username } = await openDrive(t, { files: [] });
   await page.getByRole('button', { name: 'Tải tệp lên', exact: true }).click();
-  await page.getByLabel('Thư mục dưới library/').fill('Kéo thả');
+  await page.getByLabel('Thư mục đích').fill('library/Kéo thả');
   await page.locator('#upload-drop-zone').evaluate(zone => {
     const transfer = new DataTransfer();
     transfer.items.add(new File(['first'], 'Một.epub', { type: 'application/epub+zip' }));
@@ -389,3 +389,21 @@ test('many backups paginate and filter history while preserving search and manua
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: '/tmp/vbook-compact-many-mobile.png', fullPage: true });
 });
+
+ test('creates nested folders, persists empty folders and uploads extension files there', async t => {
+  const { page, username } = await openDrive(t, { files: [] });
+  await page.getByRole('button', { name: 'Tạo thư mục', exact: true }).click();
+  await page.getByLabel('Đường dẫn thư mục').fill('vbookext/demo/src');
+  await page.getByRole('button', { name: 'Tạo', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã tạo thư mục');
+  assert.ok(await bucket.head(username + '/vbookext/demo/src/'));
+  await page.reload();
+  await page.locator('.folder-panel summary').click();
+  await page.getByRole('button', { name: 'vbookext/demo/src/', exact: true }).click();
+  assert.equal(await page.getByLabel('Thư mục đích').inputValue(), 'vbookext/demo/src');
+  await page.locator('#upload-files').setInputFiles({ name: 'home.js', mimeType: 'text/javascript', buffer: Buffer.from('function execute() {}') });
+  await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
+  await waitText(page, 'upload-status', 'Đã tải lên 1 tệp');
+  assert.equal(await (await bucket.get(username + '/vbookext/demo/src/home.js')).text(), 'function execute() {}');
+  assert.equal(await bucket.head(username + '/library/vbookext/demo/src/home.js'), null);
+ });

@@ -191,6 +191,7 @@ export const driveScript = String.raw`
         }
         return row;
       }));
+      renderFolders(data.folders || []);
       usage = data.usageBytes;
       quota = data.quotaBytes;
       estimated = false;
@@ -443,7 +444,8 @@ export const driveScript = String.raw`
     if (!files.length) { uploadStatus.textContent = 'Hãy chọn ít nhất một tệp.'; return; }
     if (segments.some(segment => !segment || segment === '.' || segment === '..' || /[\\\u0000-\u001f]/.test(segment))) { uploadStatus.textContent = 'Tên thư mục không hợp lệ.'; return; }
     if (files.some(file => file.size > 100000000 || /[\\/\u0000-\u001f]/.test(file.name))) { uploadStatus.textContent = 'Có tệp quá 100 MB hoặc tên không hợp lệ.'; return; }
-    const paths = files.map(file => 'library/' + (segments.length ? segments.join('/') + '/' : '') + file.name);
+    if (segments[0] === 'backup-history') { uploadStatus.textContent = 'Không thể tải vào thư mục lịch sử.'; return; }
+    const paths = files.map(file => (segments.length ? segments.join('/') + '/' : '') + file.name);
     if (paths.some(path => rows().some(row => row.dataset.name === path)) && !confirm('Tệp trùng đường dẫn sẽ đưa bản hiện tại vào lịch sử. Tiếp tục?')) return;
     uploadProgress.hidden = false;
     uploadBar.style.width = '0%';
@@ -586,6 +588,53 @@ export const driveScript = String.raw`
     disconnectDrive.hidden = true;
     driveStatus.textContent = 'Chưa liên kết thư mục Google Drive.';
     showToast('Đã ngắt liên kết Google Drive.');
+  });
+
+  const folderDialog = document.getElementById('folder-dialog');
+  const folderStatus = document.getElementById('folder-status');
+  function renderFolders(folders) {
+    const container = document.getElementById('folder-list');
+    const options = document.getElementById('upload-folders');
+    container.replaceChildren(); options.replaceChildren();
+    for (const folder of folders) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'btn folder-target'; button.dataset.folder = folder;
+      button.textContent = folder + '/'; button.title = 'Tải tệp vào ' + folder;
+      container.append(button);
+      const option = document.createElement('option'); option.value = folder; options.append(option);
+    }
+    document.getElementById('folder-empty').hidden = folders.length > 0;
+  }
+  document.getElementById('folder-list').addEventListener('click', event => {
+    const target = event.target.closest('[data-folder]');
+    if (!target) return;
+    document.getElementById('upload-folder').value = target.dataset.folder;
+    document.getElementById('open-upload').click();
+  });
+  document.getElementById('new-folder').addEventListener('click', () => {
+    folderStatus.textContent = ''; folderDialog.showModal(); document.getElementById('folder-path').focus();
+  });
+  document.getElementById('close-folder').addEventListener('click', () => folderDialog.close());
+  document.getElementById('folder-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const path = document.getElementById('folder-path').value.trim().replace(/^\/+|\/+$/g, '');
+    const parts = path.split('/');
+    if (!path || parts[0] === 'backup-history' || parts.some(part => !part || part === '.' || part === '..' || /[\\\u0000-\u001f\u007f]/.test(part))) {
+      folderStatus.textContent = 'Đường dẫn thư mục không hợp lệ.'; return;
+    }
+    const submit = event.currentTarget.querySelector('[type=submit]'); submit.disabled = true;
+    try {
+      for (let index = 1; index <= parts.length; index++) {
+        const response = await fetchWithTimeout('/webdav/' + parts.slice(0, index).map(encodeURIComponent).join('/') + '/', { method: 'MKCOL' });
+        if (!response.ok) throw new Error(String(response.status));
+      }
+      document.getElementById('upload-folder').value = path;
+      await refreshFiles(true);
+      document.querySelector('.folder-panel').open = true;
+      folderDialog.close(); showToast('Đã tạo thư mục ' + path + '.');
+    } catch (error) {
+      folderStatus.textContent = error.message === '405' ? 'Có tệp trùng tên với thư mục này.' : 'Chưa tạo được đầy đủ thư mục. Hãy làm mới danh sách và thử lại.';
+    } finally { submit.disabled = false; }
   });
   filterAndSort();
 })();

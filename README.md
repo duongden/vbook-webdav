@@ -63,17 +63,27 @@ Trên điện thoại, các nút được thu gọn thành icon nhưng vẫn có
 
 <img src="docs/images/mobile.png" alt="Trang quản lý trên điện thoại với các nút sửa, tải xuống và xóa dạng icon" width="390">
 
+## Tạo thư mục và upload extension thủ công
+
+1. Bấm icon **thư mục có dấu cộng** trên thanh thao tác (tooltip **Tạo thư mục**).
+2. Nhập `vbookext` hoặc đường dẫn nhiều cấp như `vbookext/ten-extension/src` rồi bấm **Tạo**.
+3. Mở mục **Thư mục · chọn để tải tệp vào**. Thư mục rỗng vẫn hiển thị sau khi tải lại trang.
+4. Bấm tên thư mục để mở hộp upload với đúng đường dẫn đích.
+5. Upload `plugin.json`, `icon.png` vào `vbookext/ten-extension`; upload các file JavaScript vào `vbookext/ten-extension/src`.
+
+Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư mục để giữ cấu trúc extension. Danh sách tệp vẫn hiển thị đường dẫn của từng file. Nếu tạo nhiều cấp bị gián đoạn, những cấp đã tạo vẫn được giữ; làm mới danh sách rồi thử lại.
+
 ## Tải truyện lên thư viện
 
 1. Chọn **Tải tệp lên**.
-2. Điền tên thư mục con nếu muốn, ví dụ `Tiên Hiệp`.
+2. Chọn **Thư mục đích**, ví dụ `library/Tiên Hiệp` hoặc `vbookext/ten-extension/src`.
 3. Chọn file hoặc kéo thả nhiều file vào vùng chọn.
 4. Kiểm tra số file đã chọn rồi bấm **Tải lên**.
 5. Giữ trang mở cho đến khi có thông báo hoàn tất.
 
 <img src="docs/images/upload-dialog.png" alt="Hộp tải file lên với ô thư mục và vùng chọn hoặc kéo thả nhiều file" width="410">
 
-Mọi file tải từ trình duyệt được đặt dưới `library/`. Bạn có thể upload EPUB, PDF, CBZ, TXT và các loại file khác; file tải xuống luôn được trình duyệt xử lý như tệp đính kèm.
+Thư mục đích mặc định là `library`. Bạn có thể đổi sang thư mục khác của tài khoản; thư mục `backup-history` dành riêng cho lịch sử và không nhận upload. Bạn có thể upload EPUB, PDF, CBZ, TXT và các loại file khác; file tải xuống luôn được trình duyệt xử lý như tệp đính kèm.
 
 Nếu upload một file vào đúng đường dẫn đã tồn tại, bản cũ được chuyển sang **Lịch sử**. Thao tác này dùng thêm dung lượng thay vì ghi mất bản cũ.
 
