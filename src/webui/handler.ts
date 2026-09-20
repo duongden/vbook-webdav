@@ -12,6 +12,7 @@ interface DriveFile { name: string; size: number; uploaded: string; metadata?: B
 
 async function inventory(c: Context<AppEnv>) {
   const username = c.get('username');
+  const usageBytes = await getUsage(c.env, username);
   const files: DriveFile[] = [];
   const folders = new Set<string>();
   const metadata = new Map((await getBookMetadata(c.env, username)).map(record => [record.path, record.metadata]));
@@ -31,7 +32,7 @@ async function inventory(c: Context<AppEnv>) {
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
   files.sort((a, b) => b.uploaded.localeCompare(a.uploaded) || a.name.localeCompare(b.name));
-  return { files, folders: [...folders].sort(), usageBytes: await getUsage(c.env, username), quotaBytes: (c.get('user').quota_mb || 500) * 1024 * 1024 };
+  return { files, folders: [...folders].sort(), usageBytes, quotaBytes: (c.get('user').quota_mb || 500) * 1024 * 1024 };
 }
 
 export const webuiDataHandler = async (c: Context<AppEnv>) => {
@@ -103,10 +104,11 @@ export const webuiHandler = async (c: Context<AppEnv>) => {
     </aside>
     <div class="drive-main">
     <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">Không gian lưu trữ cá nhân</p><h1 id="page-title">Tệp của tôi</h1><p class="subtitle">Các bản sao lưu từ VBook và Legado, gọn gàng ở một nơi.</p></div><span class="connection"><span class="dot"></span>WebDAV</span></section>
-    <section class="files-panel" aria-labelledby="files-title">
+    <section class="files-panel" data-layout="list" aria-labelledby="files-title">
       <div class="panel-heading"><div class="panel-title"><h2 id="files-title">Tất cả tệp</h2><span class="count" id="file-count">${files.length}</span></div><div class="panel-actions"><button type="button" class="btn" id="new-folder" title="Tạo thư mục" aria-label="Tạo thư mục"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 7V4h6l3 3h9v13H3V7Z M12 10v7 M8.5 13.5h7"/></svg></button><button type="button" class="btn" id="manage-drive" aria-label="Liên kết Google Drive" title="Liên kết Google Drive">${linkIcon}<span>Drive</span></button><button type="button" class="btn" id="manage-shares">Chia sẻ</button><button type="button" class="btn btn-primary" id="open-upload">Tải tệp lên</button><button type="button" class="btn" id="refresh-files"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Làm mới</span></button></div></div>
 
       <div class="toolbar"><label class="search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="visually-hidden">Tìm theo tên tệp hoặc thư mục</span><input id="search-files" type="search" placeholder="Tìm theo tên tệp hoặc thư mục…" autocomplete="off"></label><label class="visually-hidden" for="sort-files">Sắp xếp tệp</label><select id="sort-files"><option value="newest">Mới nhất trước</option><option value="name">Tên: A → Z</option><option value="largest">Dung lượng lớn nhất</option></select></div>
+      <div class="view-controls"><div class="view-switch" role="group" aria-label="Kiểu hiển thị"><button type="button" class="btn" data-layout-choice="list" aria-label="Danh sách chi tiết" title="Danh sách chi tiết" aria-pressed="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg></button><button type="button" class="btn" data-layout-choice="grid" aria-label="Dạng lưới" title="Dạng lưới" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button></div></div>
       <div class="folder-navigation"><nav id="folder-breadcrumb" aria-label="Đường dẫn thư mục"></nav><button type="button" class="btn" id="toggle-folder-view" aria-pressed="false">Xem tất cả tệp</button></div>
       <div id="folder-list" class="folder-list" aria-label="Thư mục con"></div>
       <div class="list-heading" aria-hidden="true"><span>Tên tệp</span><span>Dung lượng</span><span class="date-heading">Ngày tải lên</span><span>Thao tác</span></div>

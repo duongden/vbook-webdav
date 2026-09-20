@@ -546,3 +546,37 @@ test('decimal MB admin limits are exact and legacy limits survive a form save', 
   assert.equal((await request(name, '/exact', 'PUT', new Uint8Array(1000000))).status, 201);
   assert.equal((await request(name, '/too-large', 'PUT', new Uint8Array(1000001))).status, 413);
 });
+
+test('MOVE preserves content, metadata and quota; rejects collisions, cycles and cross-origin destinations', async () => {
+  const name = await user('move_owner');
+  await request(name, '/webdav/library/src/book.txt', 'PUT', 'hello');
+  await request(name, '/webdav/library/dest/', 'MKCOL');
+  await request(name, '/api/metadata', 'PUT', JSON.stringify({ path: 'library/src/book.txt', metadata: { title: 'Book' } }), { 'X-VBook-Action': 'metadata', 'Content-Type': 'application/json' });
+  const move = (source, destination, headers = {}) => request(name, '/webdav/' + source, 'MOVE', undefined, { Destination: 'https://test.local/webdav/' + destination, ...headers });
+  assert.equal((await move('library/src', 'library/src/child')).status, 409);
+  assert.equal((await move('library/src', 'library/dest')).status, 412);
+  assert.equal((await move('library/src', 'library/dest/src', { Origin: 'https://evil.test' })).status, 403);
+  assert.equal((await move('library/src', 'library/dest/src', { Destination: 'https://evil.test/webdav/src' })).status, 403);
+  assert.equal((await move('library/src', 'backup-history/src')).status, 403);
+  assert.equal((await move('library/src', 'library/dest/src')).status, 201);
+  assert.equal(await bucket.head(name + '/library/src/book.txt'), null);
+  assert.equal(await (await bucket.get(name + '/library/dest/src/book.txt')).text(), 'hello');
+  const metadata = await (await request(name, '/api/metadata')).json();
+  assert.equal(metadata.records[0].path, name + '/library/dest/src/book.txt');
+  assert.equal(metadata.records[0].metadata.title, 'Book');
+  assert.equal(await usage(name), 5);
+  await user('move_other');
+  assert.equal((await request('move_other', '/webdav/library/dest/src', 'MOVE', undefined, { Destination: 'https://test.local/webdav/stolen' })).status, 404);
+  assert.equal((await move('library/dest/src/book.txt', 'library/dest/book.txt')).status, 201);
+  assert.equal(await usage(name), 5);
+});
+
+test('large folder MOVE resumes before new writes and preserves every file', async () => {
+  const name = await user('move_many');
+  for (let i = 0; i < 25; i++) await bucket.put(name + '/tree/' + i, 'data');
+  const response = await request(name, '/webdav/tree', 'MOVE', undefined, { Destination: 'https://test.local/webdav/moved' });
+  assert.equal(response.status, 202);
+  assert.equal(await usage(name), 100);
+  assert.equal((await bucket.list({ prefix: name + '/tree/' })).objects.length, 0);
+  assert.equal((await bucket.list({ prefix: name + '/moved/' })).objects.length, 25);
+});

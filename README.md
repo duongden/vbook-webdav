@@ -75,6 +75,17 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 
 ## Tải truyện lên thư viện
 
+### Chọn kiểu xem và di chuyển tệp
+
+- Hai nút icon **Danh sách chi tiết** và **Dạng lưới** đổi cách hiển thị cả tệp lẫn thư mục. Trình duyệt ghi nhớ lựa chọn này.
+- Trên máy tính, kéo tệp hoặc thư mục thả vào thư mục đích. Có thể thả lên tên thư mục trên thanh đường dẫn để chuyển về thư mục cha hoặc thư mục gốc.
+- Trên màn hình cảm ứng, nhấn giữ tệp hoặc thư mục đến khi nhãn kéo xuất hiện, rồi kéo tới thư mục đích và thả. Vuốt bình thường vẫn cuộn trang. Cả list và grid đều hỗ trợ kéo thả, kể cả khi đang xem tất cả tệp.
+- Có thể thả tệp từ máy tính trực tiếp vào vùng quản lý hoặc lên một thư mục để mở hộp upload với đúng thư mục đích, rồi bấm **Tải lên**. Thư mục từ máy tính cần được tạo và upload các tệp bên trong theo từng cấp như hướng dẫn phía trên.
+- Thư mục được chuyển cùng toàn bộ nội dung. Nếu đích đã có mục trùng tên, thao tác bị từ chối; không ghi đè. Không thể chuyển một thư mục vào chính nó hoặc thư mục con của nó. Mục trong **Lịch sử** không hỗ trợ di chuyển.
+- Với thư mục lớn hoặc khi mất kết nối, máy chủ tiếp tục công việc đã nhận. Bấm **Làm mới** để kiểm tra kết quả trước khi thử lại.
+
+### Upload tệp
+
 1. Chọn **Tải tệp lên**.
 2. Chọn **Thư mục đích**, ví dụ `library/Tiên Hiệp` hoặc `vbookext/ten-extension/src`.
 3. Chọn file hoặc kéo thả nhiều file vào vùng chọn.

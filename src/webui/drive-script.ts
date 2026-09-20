@@ -4,6 +4,17 @@ export const driveScript = String.raw`
   'use strict';
   const drive = document.getElementById('drive');
   const list = document.getElementById('file-list');
+  const filesPanel = document.querySelector('.files-panel');
+  const layoutButtons = document.querySelectorAll('[data-layout-choice]');
+  function setLayout(layout) {
+    filesPanel.dataset.layout = layout === 'grid' ? 'grid' : 'list';
+    layoutButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.layoutChoice === filesPanel.dataset.layout)));
+  }
+  try { setLayout(localStorage.getItem('vbook-file-layout')); } catch { setLayout('list'); }
+  layoutButtons.forEach(button => button.addEventListener('click', () => {
+    setLayout(button.dataset.layoutChoice);
+    try { localStorage.setItem('vbook-file-layout', filesPanel.dataset.layout); } catch { /* Storage may be disabled. */ }
+  }));
   const search = document.getElementById('search-files');
   const sort = document.getElementById('sort-files');
   const refreshButton = document.getElementById('refresh-files');
@@ -114,6 +125,7 @@ export const driveScript = String.raw`
       row.hidden = !shown.has(row);
       const name = row.dataset.name;
       const history = name.startsWith('backup-history/');
+      row.draggable = !history;
       const parent = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : 'Thư mục gốc';
       row.querySelector('.file-path').textContent = history ? 'Lịch sử · ' + parent.replace(/^backup-history\/([^/]+)\/?/, (_, stamp) => stamp.replace(/_UTC\+7_.*/, ' (GMT+7)').replace('_', ' ') + ' · ') : parent;
       list.append(row);
@@ -602,6 +614,137 @@ export const driveScript = String.raw`
     showToast('Đã ngắt liên kết Google Drive.');
   });
 
+  let draggedPath = null;
+  let moving = false;
+  const dropTarget = event => event.target.closest('[data-open-folder]');
+  filesPanel.addEventListener('dragstart', event => {
+    const item = event.target.closest('[data-file], [data-move-source]');
+    if (!item || moving || busy.size) { event.preventDefault(); return; }
+    const path = item.dataset.moveSource || item.dataset.name;
+    if (!path || path.startsWith('backup-history/')) { event.preventDefault(); return; }
+    draggedPath = path;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-vbook-path', path);
+  });
+  function clearDropHighlight() { filesPanel.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target')); }
+  filesPanel.addEventListener('dragend', () => { draggedPath = null; clearDropHighlight(); });
+  filesPanel.addEventListener('dragover', event => {
+    const target = dropTarget(event);
+    if (!draggedPath || !target || moving) return;
+    event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+    clearDropHighlight(); target.classList.add('drop-target');
+  });
+  filesPanel.addEventListener('dragleave', event => {
+    const target = dropTarget(event);
+    if (target && !target.contains(event.relatedTarget)) target.classList.remove('drop-target');
+  });
+  filesPanel.addEventListener('drop', async event => {
+    const target = dropTarget(event);
+    if (!draggedPath || !target) return;
+    event.preventDefault();
+    const source = draggedPath;
+    const folder = target.dataset.openFolder;
+    draggedPath = null; clearDropHighlight();
+    await moveItem(source, folder);
+  });
+  async function moveItem(source, folder) {
+    const destination = (folder ? folder + '/' : '') + baseName(source);
+    if (moving || source === destination) return;
+    if (folder === source || folder.startsWith(source + '/')) {
+      showToast('Không thể chuyển thư mục vào chính nó hoặc thư mục con của nó.', 'error'); return;
+    }
+    moving = true; filesPanel.setAttribute('aria-busy', 'true');
+    try {
+      const response = await fetchWithTimeout('/webdav/' + encodePath(source), {
+        method: 'MOVE', headers: { Destination: new URL('/webdav/' + encodePath(destination), location.origin).href, Overwrite: 'F' }
+      }, 60000);
+      if (response.status === 202) {
+        showToast('Đang chuyển thư mục. Máy chủ sẽ tiếp tục xử lý; bấm Làm mới để kiểm tra.', 'pending');
+      } else if (response.ok) {
+        showToast('Đã chuyển ' + baseName(source) + ' vào ' + (folder || 'thư mục gốc') + '.');
+      } else {
+        showToast(response.status === 412 ? 'Thư mục đích đã có tệp hoặc thư mục trùng tên.' : response.status === 409 ? 'Không thể chuyển vào thư mục này. Hãy làm mới danh sách.' : 'Chưa chuyển xong. Hãy làm mới danh sách để kiểm tra trước khi thử lại.', 'error');
+      }
+      await refreshFiles(true);
+    } catch {
+      showToast('Chưa xác nhận được kết quả chuyển. Máy chủ có thể vẫn đang xử lý; hãy làm mới danh sách.', 'pending');
+    } finally { moving = false; filesPanel.removeAttribute('aria-busy'); }
+  }
+
+  // Long press starts a touch drag; ordinary swipes remain available for scrolling.
+  let touchDrag = null;
+  let suppressClickUntil = 0;
+  function endTouchDrag() {
+    if (touchDrag) { clearTimeout(touchDrag.timer); touchDrag.ghost?.remove(); }
+    touchDrag = null; clearDropHighlight();
+  }
+  filesPanel.addEventListener('touchstart', event => {
+    endTouchDrag();
+    if (event.touches.length !== 1 || moving || busy.size || event.target.closest('.file-actions')) return;
+    const item = event.target.closest('[data-file], [data-move-source]');
+    const path = item?.dataset.moveSource || item?.dataset.name;
+    if (!path || path.startsWith('backup-history/')) return;
+    const touch = event.touches[0];
+    const drag = { path, x: touch.clientX, y: touch.clientY, active: false, target: null };
+    drag.timer = setTimeout(() => {
+      if (touchDrag !== drag) return;
+      drag.active = true;
+      drag.ghost = document.createElement('div'); drag.ghost.className = 'touch-drag-label';
+      drag.ghost.textContent = baseName(path); document.body.append(drag.ghost);
+      drag.ghost.style.left = drag.x + 'px'; drag.ghost.style.top = drag.y + 'px';
+    }, 400);
+    touchDrag = drag;
+  }, { passive: true });
+  filesPanel.addEventListener('touchmove', event => {
+    if (!touchDrag) return;
+    if (event.touches.length !== 1) { endTouchDrag(); return; }
+    const touch = event.touches[0];
+    if (!touchDrag.active) {
+      if (Math.hypot(touch.clientX - touchDrag.x, touch.clientY - touchDrag.y) > 8) endTouchDrag();
+      return;
+    }
+    event.preventDefault();
+    touchDrag.ghost.style.left = touch.clientX + 'px'; touchDrag.ghost.style.top = touch.clientY + 'px';
+    touchDrag.target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-open-folder]');
+    clearDropHighlight(); touchDrag.target?.classList.add('drop-target');
+    if (touch.clientY < 60) window.scrollBy(0, -18);
+    else if (touch.clientY > innerHeight - 60) window.scrollBy(0, 18);
+  }, { passive: false });
+  filesPanel.addEventListener('touchend', event => {
+    if (!touchDrag) return;
+    const { active, path, target } = touchDrag;
+    if (active) { event.preventDefault(); suppressClickUntil = Date.now() + 700; }
+    endTouchDrag();
+    if (active && target) void moveItem(path, target.dataset.openFolder);
+  }, { passive: false });
+  filesPanel.addEventListener('touchcancel', endTouchDrag);
+  filesPanel.addEventListener('contextmenu', event => { if (touchDrag) event.preventDefault(); });
+  filesPanel.addEventListener('click', event => {
+    if (Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') { endTouchDrag(); draggedPath = null; } });
+
+  // Files from the device can be dropped directly on the panel or a destination folder.
+  filesPanel.addEventListener('dragover', event => {
+    if (!event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault(); event.dataTransfer.dropEffect = 'copy';
+  });
+  filesPanel.addEventListener('drop', event => {
+    if (!event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault();
+    if (activeUpload) return;
+    if (Array.from(event.dataTransfer.items).some(item => item.webkitGetAsEntry?.()?.isDirectory)) {
+      showToast('Hãy chọn các tệp bên trong thư mục để tải lên.', 'error'); return;
+    }
+    if (!event.dataTransfer.files.length) return;
+    const target = dropTarget(event);
+    document.getElementById('upload-folder').value = target ? target.dataset.openFolder : (folderMode ? currentFolder : '');
+    updateUploadSelection(event.dataTransfer.files);
+    uploadStatus.textContent = 'Đã nhận ' + selectedUploadFiles.length + ' tệp được thả.';
+    uploadProgress.hidden = true;
+    uploadDialog.showModal();
+  });
+
   const folderDialog = document.getElementById('folder-dialog');
   const folderStatus = document.getElementById('folder-status');
   function renderFolders(folders) {
@@ -631,20 +774,19 @@ export const driveScript = String.raw`
       breadcrumb.append(button);
     };
     crumb('Thư mục gốc', '', folderMode && !currentFolder);
-    if (!folderMode) return 0;
-    const parts = currentFolder ? currentFolder.split('/') : [];
+    const parts = folderMode && currentFolder ? currentFolder.split('/') : [];
     parts.forEach((part, index) => {
       const separator = document.createElement('span'); separator.textContent = '/'; separator.setAttribute('aria-hidden', 'true'); breadcrumb.append(separator);
       crumb(part, parts.slice(0, index + 1).join('/'), index === parts.length - 1);
     });
     const prefix = currentFolder ? currentFolder + '/' : '';
-    const children = knownFolders.filter(folder => folder.startsWith(prefix) && !folder.slice(prefix.length).includes('/') && normalize(folder).includes(query));
+    const children = knownFolders.filter(folder => (!folderMode || (folder.startsWith(prefix) && !folder.slice(prefix.length).includes('/'))) && normalize(folder).includes(query));
     for (const folder of children) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn folder-target'; button.dataset.openFolder = folder;
-      button.setAttribute('aria-label', 'Mở thư mục ' + baseName(folder));
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn folder-target'; button.dataset.openFolder = folder; button.draggable = true; button.dataset.moveSource = folder;
+      button.setAttribute('aria-label', 'Mở thư mục ' + (folderMode ? baseName(folder) : folder));
       const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', 'M3 7V4h6l3 3h9v13H3V7Z'); icon.append(path);
-      const label = document.createElement('span'); label.textContent = baseName(folder);
+      const label = document.createElement('span'); label.textContent = folderMode ? baseName(folder) : folder;
       button.append(icon, label); container.append(button);
     }
     return children.length;

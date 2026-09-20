@@ -124,3 +124,23 @@ test('failed replacement after history copy preserves old file and cleans only r
   assert.equal([...f.objects.keys()].filter(key => key.includes('/backup-history/')).length, 0);
   assert.equal((await (await f.call(object, 'usage')).json()).bytes, 8);
 });
+
+test('interrupted MOVE resumes after copying without losing source content or double-counting quota', async () => {
+  const f = fixture(3);
+  const original = f.bucket.delete;
+  let fail = true;
+  f.bucket.delete = async key => {
+    if (fail && key === 'alice/tree/0') { fail = false; throw new Error('Interrupted move'); }
+    return original(key);
+  };
+  await assert.rejects(f.instance().fetch(new Request('https://internal/move', {
+    method: 'POST', headers: { 'X-Storage-User': 'alice', 'X-Storage-Key': 'alice%2Ftree', 'X-Storage-Destination': 'alice%2Fmoved' }
+  })), /Interrupted move/);
+  assert.ok(f.objects.has('alice/tree/0'));
+  assert.ok(f.objects.has('alice/moved/0'));
+  await f.instance().alarm();
+  assert.equal(f.data.has('move'), false);
+  assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/tree/')).length, 0);
+  assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/moved/')).length, 3);
+  assert.equal((await (await f.call(f.instance(), 'usage')).json()).bytes, 6);
+});

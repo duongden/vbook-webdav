@@ -3,12 +3,14 @@ import { validUsername } from '../utils/path';
 
 export function storageRequest(env: Env, username: string, action: string, options: {
   key?: string;
+  destination?: string;
   request?: Request;
   user?: UserConfig;
 } = {}): Promise<Response> {
   if (!validUsername(username)) throw new Error('Invalid storage owner');
   const headers = new Headers({ 'X-Storage-User': username });
   if (options.key) headers.set('X-Storage-Key', encodeURIComponent(options.key));
+  if (options.destination) headers.set('X-Storage-Destination', encodeURIComponent(options.destination));
   if (options.user) {
     headers.set('X-Quota-MB', String(options.user.quota_mb));
     headers.set('X-Max-File-MB', String(options.user.max_file_size_mb));

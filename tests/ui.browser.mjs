@@ -40,7 +40,7 @@ after(async () => {
   await mf?.dispose();
   if (directory) await rm(directory, { recursive: true, force: true });
 });
-async function openDrive(t, { files = defaultFiles, width = 1280, height = 900, browseFolders = false } = {}) {
+async function openDrive(t, { files = defaultFiles, width = 1280, height = 900, browseFolders = false, hasTouch = false } = {}) {
   const username = 'ui_demo_' + ++counter;
   const salt = '11'.repeat(16);
   await kv.put('user:' + username, JSON.stringify({
@@ -48,7 +48,7 @@ async function openDrive(t, { files = defaultFiles, width = 1280, height = 900, 
     quota_mb: 500, max_file_size_mb: 50, status: 'active',
   }));
   for (const file of files) await bucket.put(username + '/' + file.name, new Uint8Array(file.size));
-  const context = await browser.newContext({ httpCredentials: { username, password }, viewport: { width, height } });
+  const context = await browser.newContext({ httpCredentials: { username, password }, viewport: { width, height }, hasTouch });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -434,4 +434,64 @@ test('folder browsing isolates extensions and creates subfolders in the current 
   assert.equal(await page.locator('[data-file]:visible').count(), 1);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: '/tmp/vbook-extension-folders-mobile.png', fullPage: true });
+});
+
+test('list/grid choice persists and dragging moves files and folders into a folder', async t => {
+  const { page, username } = await openDrive(t, { browseFolders: true, files: [
+    { name: 'book.txt', size: 12 }, { name: 'extension/plugin.json', size: 24 }, { name: 'target/keep.txt', size: 8 }
+  ] });
+  await page.getByRole('button', { name: 'Dạng lưới', exact: true }).click();
+  await page.reload();
+  assert.equal(await page.locator('.files-panel').getAttribute('data-layout'), 'grid');
+  await page.locator('[data-file][data-name="book.txt"]').dragTo(page.getByRole('button', { name: 'Mở thư mục target', exact: true }));
+  await waitText(page, 'toast-message', 'Đã chuyển book.txt');
+  await page.waitForFunction(() => !document.querySelector('.files-panel').hasAttribute('aria-busy'));
+  assert.ok(await bucket.head(username + '/target/book.txt'));
+  assert.equal(await bucket.head(username + '/book.txt'), null);
+  await page.getByRole('button', { name: 'Mở thư mục extension', exact: true }).dragTo(page.getByRole('button', { name: 'Mở thư mục target', exact: true }));
+  await waitText(page, 'toast-message', 'Đã chuyển extension');
+  await page.waitForFunction(() => !document.querySelector('.files-panel').hasAttribute('aria-busy'));
+  assert.ok(await bucket.head(username + '/target/extension/plugin.json'));
+  await page.getByRole('button', { name: 'Mở thư mục target', exact: true }).click();
+  assert.equal(await page.locator('[data-file]:visible').count(), 2);
+  await page.screenshot({ path: '/tmp/vbook-grid-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({ path: '/tmp/vbook-grid-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Danh sách chi tiết', exact: true }).click();
+  assert.equal(await page.locator('.files-panel').getAttribute('data-layout'), 'list');
+  assert.equal(await page.locator('[data-file]:visible').count(), 2);
+  await page.getByRole('searchbox').fill('book');
+  assert.equal(await page.locator('[data-file]:visible').count(), 1);
+});
+
+for (const layout of ['list', 'grid']) test(layout + ': touch folder drag and direct device file drop work in all-files view', async t => {
+  const { page, context, username } = await openDrive(t, { width: 390, height: 1100, hasTouch: true, files: [
+    { name: 'source/plugin.json', size: 10 }, { name: 'target/keep.txt', size: 5 }
+  ] });
+  await page.getByRole('button', { name: layout === 'grid' ? 'Dạng lưới' : 'Danh sách chi tiết', exact: true }).click();
+  const source = page.getByRole('button', { name: 'Mở thư mục source', exact: true });
+  const target = page.getByRole('button', { name: 'Mở thư mục target', exact: true });
+  await source.scrollIntoViewIfNeeded();
+  const from = await source.boundingBox(), to = await target.boundingBox();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from.x + 25, y: from.y + 25 }] });
+  await page.locator('.touch-drag-label').waitFor();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: to.x + 25, y: to.y + 25 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await waitText(page, 'toast-message', 'Đã chuyển source');
+  await page.waitForFunction(() => !document.querySelector('.files-panel').hasAttribute('aria-busy'));
+  assert.ok(await bucket.head(username + '/target/source/plugin.json'));
+  assert.equal(await bucket.head(username + '/source/plugin.json'), null);
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer(); data.items.add(new File(['device'], 'device.txt', { type: 'text/plain' })); return data;
+  });
+  await target.dispatchEvent('drop', { dataTransfer: transfer });
+  assert.equal(await page.getByLabel('Thư mục đích').inputValue(), 'target');
+  await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
+  await waitText(page, 'upload-status', 'Đã tải lên 1 tệp');
+  assert.equal(await (await bucket.get(username + '/target/device.txt')).text(), 'device');
+  await page.getByRole('button', { name: 'Đóng', exact: true }).click();
+  assert.equal(await page.locator('.files-panel').getAttribute('data-layout'), layout);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
