@@ -81,11 +81,13 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 2. Bấm icon liên kết có tooltip **Lấy link extension** ở hàng tệp `plugin.json`.
 3. Chọn **Sao chép**, rồi dán link vào phần thêm nguồn tương ứng trong vBook.
 
-Link cho phép tải không cần nhập mật khẩu WebDAV. Ai có mã trong link có thể tải tệp trong `vbookext`; các thư mục khác vẫn riêng tư. Khi phục vụ JSON kho nguồn có mảng `data`, máy chủ tự chuyển các trường `path` và `icon` nội bộ thành URL chia sẻ đầy đủ. Đường dẫn tương đối được tính từ thư mục chứa JSON; đường dẫn `vbookext/...` và URL WebDAV cùng máy chủ cũng được hỗ trợ. URL bên ngoài và trường `source` giữ nguyên. File JSON gốc không bị chỉnh sửa.
+Link cho phép tải không cần nhập mật khẩu WebDAV. Ai có mã trong link có thể tải tệp trong `vbookext`; các thư mục khác vẫn riêng tư. Khi phục vụ JSON kho nguồn có mảng `data`, máy chủ tự chuyển các trường `path` và `icon` nội bộ thành URL chia sẻ đầy đủ. Đường dẫn tương đối được tính từ thư mục chứa JSON; đường dẫn `vbookext/...` và URL WebDAV cùng máy chủ cũng được hỗ trợ. URL bên ngoài và trường `source` giữ nguyên. URL chia sẻ `/extensions/...` của cùng tài khoản và cùng máy chủ cũng được đổi sang mã hiện tại nếu JSON còn lưu link cũ. Link cũ đã thu hồi vẫn không dùng được. File JSON gốc không bị chỉnh sửa.
 
 Ví dụ: với `vbookext/plugin.json` và `vbookext/qimao/plugin.zip`, đặt `"path": "qimao/plugin.zip"` trong mục Qimao thuộc mảng `data`. Nếu có icon, dùng `"icon": "qimao/icon.png"`. Không dùng `"path": "plugin.zip"` trừ khi gói ZIP nằm cùng thư mục với JSON.
 
 `plugin.json` phải đúng định dạng nguồn mà phiên bản vBook của bạn hỗ trợ; chức năng này cung cấp link tải, không tự chuyển manifest extension thành danh sách kho nguồn. Chọn **Thu hồi link** trong popup để vô hiệu hóa toàn bộ link extension đã cấp. Lần lấy link tiếp theo sẽ tạo mã mới và cần cập nhật lại trong vBook.
+
+Phân biệt hai file JSON: `vbookext/plugin.json` là danh sách nguồn có mảng `data`; bên trong mỗi `plugin.zip` là manifest extension với `metadata` và `script`. ZIP phải chứa `plugin.json`, `icon.png` và `src/` ngay ở cấp gốc, không bọc thêm thư mục `qimao/`. Với gói mã hóa do vBook build, upload nguyên file ZIP; server giữ nguyên nội dung nhị phân khi tải xuống.
 
 ### Chọn kiểu xem và di chuyển tệp
 

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pbkdf2Sync } from 'node:crypto';
@@ -603,6 +603,15 @@ test('extension links serve only vbookext files without login and can be revoked
   assert.equal((await mf.dispatchFetch(baseUrl + 'plugin.json')).status, 404);
   const next = await (await request(name, '/api/extensions', 'POST', undefined, headers)).json();
   assert.notEqual(next.baseUrl, baseUrl);
+  const saved = { data: [{ name: 'Saved URL', path: baseUrl + 'demo/plugin.zip', icon: baseUrl + 'demo/icon.png' }, { name: 'Other owner', path: baseUrl.replace('/' + name + '/', '/another_user/') + 'demo/plugin.zip' }] };
+  await bucket.put(name + '/vbookext/plugin.json', JSON.stringify(saved));
+  const updated = await (await mf.dispatchFetch(next.baseUrl + 'plugin.json')).json();
+  assert.equal(updated.data[0].path, next.baseUrl + 'demo/plugin.zip');
+  assert.equal(updated.data[0].icon, next.baseUrl + 'demo/icon.png');
+  assert.equal(updated.data[1].path, saved.data[1].path);
+  assert.equal(await (await mf.dispatchFetch(updated.data[0].path)).text(), 'package');
+  assert.equal((await mf.dispatchFetch(baseUrl + 'demo/plugin.zip')).status, 404);
+
   const account = await kv.get('user:' + name, 'json');
   await kv.put('user:' + name, JSON.stringify({ ...account, status: 'suspended' }));
   assert.equal((await mf.dispatchFetch(next.baseUrl + 'plugin.json')).status, 404);
@@ -645,4 +654,22 @@ test('extension repository rewrites internal package URLs and icons without alte
   assert.equal(await head.text(), '');
   await request(name, '/api/extensions', 'DELETE', undefined, { 'X-VBook-Action': 'extensions' });
   assert.equal((await mf.dispatchFetch(result.data[0].path)).status, 404);
+});
+
+
+test('real extension ZIP downloads byte-for-byte through repository link', { skip: !process.env.VBOOK_EXTENSION_FIXTURE, timeout: 20000 }, async () => {
+  const zip = await readFile(process.env.VBOOK_EXTENSION_FIXTURE);
+  const name = await user('real_extension');
+  await bucket.put(name + '/vbookext/qimao/plugin.zip', zip);
+  await bucket.put(name + '/vbookext/plugin.json', JSON.stringify({ data: [{ name: 'Qimao', path: 'qimao/plugin.zip' }] }));
+  const { baseUrl } = await (await request(name, '/api/extensions', 'POST', undefined, { 'X-VBook-Action': 'extensions' })).json();
+  const repository = await mf.dispatchFetch(baseUrl + 'plugin.json');
+  assert.equal(repository.status, 200);
+  const manifest = await repository.json();
+  const response = await mf.dispatchFetch(manifest.data[0].path);
+  assert.equal(response.status, 200);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.deepEqual(bytes, zip);
+  assert.equal(bytes.subarray(0, 2).toString(), 'PK');
+  console.log('Verified real ZIP: ' + bytes.length + ' bytes, unchanged after download');
 });

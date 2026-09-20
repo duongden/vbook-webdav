@@ -27,8 +27,17 @@ function assetUrl(value: unknown, owner: string, key: string, origin: string, mo
   try {
     if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith('//')) {
       const absolute = new URL(value, origin);
-      if (absolute.origin !== origin || !absolute.pathname.startsWith('/webdav/vbookext/')) return value;
-      rawPath = absolute.pathname.slice('/webdav'.length);
+      if (absolute.origin !== origin) return value;
+      const sharedPrefix = '/extensions/' + owner + '/';
+      if (absolute.pathname.startsWith(sharedPrefix)) {
+        const remainder = absolute.pathname.slice(sharedPrefix.length);
+        const slash = remainder.indexOf('/');
+        if (slash < 0 || !TOKEN.test(remainder.slice(0, slash))) return value;
+        // A saved repository may contain URLs issued before the owner rotated its link.
+        rawPath = '/vbookext/' + remainder.slice(slash + 1);
+      } else if (absolute.pathname.startsWith('/webdav/vbookext/')) {
+        rawPath = absolute.pathname.slice('/webdav'.length);
+      } else return value;
     } else if (value.startsWith('/webdav/vbookext/')) {
       rawPath = new URL(value, origin).pathname.slice('/webdav'.length);
     } else if (value.startsWith('/vbookext/') || value.startsWith('vbookext/')) {
