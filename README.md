@@ -1,153 +1,222 @@
 # VBook WebDAV Cloud
 
-Lưu và quản lý bản sao lưu từ VBook, Legado hoặc ứng dụng hỗ trợ WebDAV. Bạn có thể tìm, tải về và xóa backup bằng trình duyệt trên máy tính hoặc điện thoại.
+Kho lưu trữ cá nhân dành cho VBook, Legado và các ứng dụng hỗ trợ WebDAV. Người dùng có thể sao lưu dữ liệu, tải truyện lên thư viện, tìm lại bản cũ và chia sẻ thư viện ở chế độ chỉ đọc.
 
-> Ảnh bên dưới sử dụng tài khoản và file mẫu để minh họa thao tác.
+Dịch vụ này phù hợp cho cá nhân, gia đình hoặc nhóm người dùng tin cậy. Bạn chỉ cần địa chỉ máy chủ, tên tài khoản và mật khẩu do người quản trị cung cấp.
 
-![Giao diện máy tính với thanh điều hướng bên trái và danh sách backup bên phải](docs/images/desktop.png)
+> Các ảnh trong hướng dẫn dùng tài khoản, mật khẩu và file giả để minh họa.
 
-## 1. Kết nối ứng dụng
+![Trang quản lý file trên máy tính: bộ lọc và dung lượng ở bên trái, danh sách file ở bên phải](docs/images/desktop.png)
 
-Bạn cần **địa chỉ WebDAV, tên tài khoản và mật khẩu** do người quản trị cung cấp.
+## Bắt đầu nhanh
 
-Mở phần sao lưu WebDAV trong ứng dụng và điền:
+1. Mở địa chỉ web do người quản trị cung cấp.
+2. Nhập **Username** và **Password** khi trình duyệt hỏi đăng nhập.
+3. Chọn **Tải tệp lên** nếu muốn thêm truyện từ máy.
+4. Chọn **Làm mới** sau khi vừa sao lưu từ VBook hoặc Legado.
+5. Dùng ô tìm kiếm hoặc các mục **Tất cả**, **Bản hiện tại**, **Lịch sử** để tìm file.
 
-| Ô trong ứng dụng | Cách điền |
+Mật khẩu tài khoản dùng cho web và WebDAV. Mã PIN của trang quản trị không phải mật khẩu người dùng.
+
+## Kết nối VBook hoặc Legado qua WebDAV
+
+Trong phần sao lưu WebDAV của ứng dụng, điền đúng thông tin được cung cấp:
+
+| Ô trong ứng dụng | Giá trị cần điền |
 | --- | --- |
-| Server / URL | Dán nguyên địa chỉ WebDAV được cung cấp |
+| Server / URL | Địa chỉ WebDAV đầy đủ |
 | Username | Tên tài khoản của bạn |
 | Password | Mật khẩu tài khoản |
-| Thư mục backup, nếu có | Ví dụ: `vbook_backup` |
+| Thư mục backup | Ví dụ `vbook_backup`, nếu ứng dụng yêu cầu |
 
-Sau đó:
+Sau khi lưu cấu hình:
 
-1. Bấm **Kiểm tra kết nối**, nếu ứng dụng có nút này.
-2. Chọn **Sao lưu / Backup** và chờ hoàn tất.
-3. Mở địa chỉ WebDAV trong trình duyệt, đăng nhập cùng tài khoản để xem file.
+1. Chọn **Kiểm tra kết nối** nếu ứng dụng có chức năng này.
+2. Chọn **Sao lưu / Backup**.
+3. Chờ ứng dụng báo hoàn tất.
+4. Quay lại trang web và bấm **Làm mới** để xem file mới.
 
-Tên menu có thể khác giữa các ứng dụng. Mật khẩu tài khoản dùng để backup khác với mã đăng nhập của người quản trị.
+Tên menu có thể khác tùy phiên bản ứng dụng. Nếu kiểm tra kết nối thất bại, hãy dán lại nguyên URL và kiểm tra xem mật khẩu có khoảng trắng thừa hay không.
 
-## 2. Xem và tìm backup
+## Sử dụng trang quản lý file
 
-Trên máy tính, thanh bên trái chứa bộ lọc và thông tin dung lượng. Khu vực bên phải hiển thị danh sách file. Trên điện thoại, bộ lọc nằm phía trên danh sách.
-
-| Bạn muốn | Thao tác |
+| Thành phần | Công dụng |
 | --- | --- |
-| Xem toàn bộ file | Chọn **Tất cả** |
-| Xem các file đang được ứng dụng sử dụng | Chọn **Bản hiện tại** |
-| Xem những phiên bản cũ được giữ lại | Chọn **Lịch sử** |
-| Tìm một file | Nhập tên file hoặc thư mục vào ô tìm kiếm; có thể gõ không dấu |
-| Xem bản mới nhất trước | Chọn **Mới nhất trước** trong ô sắp xếp |
-| Tìm file chiếm nhiều dung lượng | Chọn **Dung lượng lớn nhất** |
-| Xem thêm file | Dùng mũi tên chuyển trang ở cuối danh sách; mỗi trang tối đa 20 file |
-| Cập nhật danh sách sau khi backup | Bấm **Làm mới** |
+| **Tất cả** | Hiển thị file hiện tại và lịch sử |
+| **Bản hiện tại** | Chỉ hiển thị file đang được ứng dụng sử dụng |
+| **Lịch sử** | Hiển thị những phiên bản cũ được giữ lại khi file bị ghi đè |
+| Ô tìm kiếm | Tìm theo tên file, thư mục, tên truyện, tác giả hoặc metadata đã chỉnh sửa |
+| Ô sắp xếp | Sắp xếp theo ngày, tên hoặc dung lượng |
+| **Làm mới** | Tải lại danh sách từ máy chủ |
 
-Ngày giờ được hiển thị theo giờ Việt Nam.
+Mỗi trang hiển thị tối đa 20 file. Dùng các nút mũi tên ở cuối danh sách để chuyển trang.
 
-### Giao diện trên điện thoại
+### Các nút cạnh mỗi file
 
-<img src="docs/images/mobile.png" alt="Giao diện điện thoại với tài khoản và file mẫu" width="320">
+| Biểu tượng | Thao tác |
+| --- | --- |
+| Bút chì | Sửa thông tin truyện; chỉ có với file trong `library/` |
+| Mũi tên tải xuống | Tải file về thiết bị |
+| Thùng rác màu đỏ | Xóa file sau bước xác nhận |
 
-## 3. Tải về và khôi phục
+Trên điện thoại, các nút được thu gọn thành icon nhưng vẫn có vùng chạm lớn và giữ đúng thứ tự **Sửa → Tải xuống → Xóa**.
 
-1. Chọn **Bản hiện tại** hoặc **Lịch sử**.
-2. Kiểm tra tên file và ngày giờ của bản muốn lấy.
-3. Bấm **Tải về**.
-4. Trong ứng dụng, mở chức năng **Khôi phục / Nhập bản sao lưu** và chọn file vừa tải.
+<img src="docs/images/mobile.png" alt="Trang quản lý trên điện thoại với các nút sửa, tải xuống và xóa dạng icon" width="390">
 
-Tải file về không tự khôi phục dữ liệu trong ứng dụng. Bạn cần thực hiện bước khôi phục trong chính ứng dụng đó.
+## Tải truyện lên thư viện
 
-## 4. Hiểu về lịch sử backup
+1. Chọn **Tải tệp lên**.
+2. Điền tên thư mục con nếu muốn, ví dụ `Tiên Hiệp`.
+3. Chọn file hoặc kéo thả nhiều file vào vùng chọn.
+4. Kiểm tra số file đã chọn rồi bấm **Tải lên**.
+5. Giữ trang mở cho đến khi có thông báo hoàn tất.
 
-Khi ứng dụng gửi bản mới vào cùng tên file và thư mục, hệ thống giữ bản trước trong **Lịch sử**.
+<img src="docs/images/upload-dialog.png" alt="Hộp tải file lên với ô thư mục và vùng chọn hoặc kéo thả nhiều file" width="410">
+
+Mọi file tải từ trình duyệt được đặt dưới `library/`. Bạn có thể upload EPUB, PDF, CBZ, TXT và các loại file khác; file tải xuống luôn được trình duyệt xử lý như tệp đính kèm.
+
+Nếu upload một file vào đúng đường dẫn đã tồn tại, bản cũ được chuyển sang **Lịch sử**. Thao tác này dùng thêm dung lượng thay vì ghi mất bản cũ.
+
+### Giới hạn upload
+
+Một lần upload bị giới hạn bởi mức thấp nhất trong ba giá trị:
+
+- **100.000.000 byte**, tương đương 100 MB theo hệ thập phân.
+- Giới hạn **Max File** của tài khoản.
+- Quota còn trống của tài khoản.
+
+Ví dụ, nếu tài khoản có Max File 50 MB thì không thể upload file 60 MB dù quota tổng vẫn còn nhiều. Khi file quá lớn, hãy dùng file nhỏ hơn hoặc liên hệ người quản trị.
+
+## Dùng thư mục Google Drive qua WebDAV
+
+Nếu người quản trị đã bật kết nối Google Drive, bạn có thể dùng một thư mục Drive làm thư viện WebDAV chỉ đọc:
+
+1. Trong Google Drive, mở phần chia sẻ của thư mục sách.
+2. Chọn **Bất kỳ ai có đường liên kết** và quyền **Người xem**.
+3. Trên trang quản lý file, chọn nút **Drive**.
+4. Dán link thư mục rồi chọn **Liên kết**.
+5. Sao chép URL WebDAV chỉ đọc được hiển thị.
+6. Trong VBook hoặc Legado, thêm URL đó cùng username và password tài khoản hiện tại.
+
+<img src="docs/images/drive-dialog.png" alt="Hộp liên kết thư mục Google Drive và URL WebDAV chỉ đọc" width="620">
+
+Kết nối này cho phép duyệt thư mục và tải file. Bạn không thể upload, đổi tên, tạo thư mục hoặc xóa file trên Drive qua WebDAV. File được tải trực tiếp từ Google Drive nên không chiếm quota R2 và không chịu giới hạn upload 100 MB của Worker.
+
+Các file thông thường như EPUB, PDF, CBZ và TXT được hiển thị. Tài liệu Google Docs/Sheets/Slides chưa được xuất tự động; hãy tải chúng thành file thông thường trước khi đặt vào thư mục sách. Không đặt hai file hoặc thư mục trùng tên trong cùng một thư mục Drive.
+
+Nút **Ngắt liên kết** chỉ gỡ thư mục khỏi tài khoản WebDAV; file gốc trong Google Drive không bị xóa. Nếu Drive báo không tìm thấy thư mục, hãy kiểm tra lại quyền chia sẻ hoặc liên hệ người quản trị.
+
+## Chỉnh sửa thông tin truyện
+
+Với file trong `library/`, chọn biểu tượng **bút chì** để mở phần **Thông tin truyện**.
+
+Bạn có thể chỉnh:
+
+- Tên hiển thị
+- Tác giả
+- Ngôn ngữ, ví dụ `vi`, `en`, `zh-Hans`
+- Thể loại
+- Mô tả
+- URL ảnh bìa HTTPS
+
+<img src="docs/images/metadata-dialog.png" alt="Hộp chỉnh tên, tác giả, ngôn ngữ, thể loại, mô tả và ảnh bìa của truyện" width="620">
+
+Chọn **Lưu thông tin** để áp dụng trên giao diện web. Chọn **Khôi phục dữ liệu gốc** để xóa phần đã chỉnh sửa. Thao tác này không đổi tên và không ghi lại nội dung EPUB/PDF gốc.
+
+Thông tin đã chỉnh sửa chỉ dùng để hiển thị và tìm kiếm trên trang quản lý. Tệp EPUB/PDF gốc và tên tệp trên WebDAV không bị thay đổi.
+
+Ảnh bìa được tải trực tiếp từ URL đã nhập. Chỉ dùng nguồn ảnh tin cậy và URL bắt đầu bằng `https://`.
+
+## Tải xuống và khôi phục backup
+
+1. Mở **Bản hiện tại** hoặc **Lịch sử**.
+2. Kiểm tra tên file và thời gian tải lên.
+3. Chọn biểu tượng **tải xuống**.
+4. Trong VBook hoặc Legado, mở chức năng **Khôi phục / Nhập bản sao lưu**.
+5. Chọn file vừa tải về.
+
+Tải file về không tự khôi phục dữ liệu. Bước nhập hoặc khôi phục phải được thực hiện trong ứng dụng tương ứng.
+
+## Hiểu và quản lý lịch sử
+
+Khi ứng dụng upload một file trùng đường dẫn, hệ thống giữ bản trước trong **Lịch sử**.
 
 | Lần sao lưu | Bản hiện tại | Lịch sử |
 | --- | --- | --- |
-| Lần đầu | Bản đầu tiên | Chưa có |
-| Lần thứ hai, cùng đường dẫn | Bản thứ hai | Giữ bản đầu tiên |
-| Lần thứ ba, cùng đường dẫn | Bản thứ ba | Giữ hai bản trước |
+| Lần đầu | Bản đầu tiên | Trống |
+| Lần thứ hai | Bản thứ hai | Bản đầu tiên |
+| Lần thứ ba | Bản thứ ba | Hai bản trước |
 
-- Ngày giờ của bản lịch sử là thời điểm bản đó được chuyển vào lịch sử.
-- Nếu ứng dụng tự tạo tên file khác nhau mỗi lần, các file ấy vẫn nằm trong **Bản hiện tại**.
-- Lịch sử **không tự xóa**. Bạn chủ động chọn những bản không cần giữ nữa.
-- Mỗi bản lưu chiếm dung lượng riêng. Đặt tên theo ngày giờ không làm file nhỏ hơn.
+![Danh sách các phiên bản backup cũ khi chọn mục Lịch sử](docs/images/history.png)
 
-![Chọn Lịch sử để xem các phiên bản backup cũ bằng dữ liệu mẫu](docs/images/history.png)
+Lịch sử không tự xóa và mỗi bản dùng dung lượng riêng. Một backup 75 MB cùng hai bản lịch sử 75 MB sẽ dùng khoảng 225 MB.
 
-## 5. Xóa backup và quản lý dung lượng
+## Xóa file và giải phóng dung lượng
 
-Bấm **Xóa** cạnh file, kiểm tra đúng tên rồi xác nhận. File bị xóa không có thùng rác để khôi phục.
+1. Chọn biểu tượng **thùng rác** cạnh file.
+2. Đọc lại đúng tên file trong hộp xác nhận.
+3. Chọn **Xóa tệp**.
 
-<img src="docs/images/delete-dialog.png" alt="Hộp xác nhận xóa file minh họa: kiểm tra tên rồi chọn Xóa tệp hoặc Giữ lại" width="410">
+<img src="docs/images/delete-dialog.png" alt="Hộp xác nhận xóa file trên điện thoại" width="390">
 
-Xóa một bản hiện tại không xóa các phiên bản cũ trong **Lịch sử**. Nếu muốn giải phóng thêm dung lượng, kiểm tra cả hai mục.
+File đã xóa không có thùng rác để khôi phục. Xóa bản hiện tại không tự xóa các bản cũ trong **Lịch sử**.
 
-Nếu giao diện hiện **Kiểm tra lại**, bấm nút đó để xác nhận kết quả. Nếu đang xử lý, chờ một lúc rồi kiểm tra lại.
+Nếu nút chuyển thành **Kiểm tra lại**, máy chủ chưa xác nhận được kết quả. Chờ một lúc rồi chọn nút đó hoặc bấm **Làm mới**. Không gửi yêu cầu xóa liên tục.
 
-| Thông tin dung lượng | Ý nghĩa |
+## Chia sẻ thư viện chỉ đọc
+
+Chức năng này dành cho việc đưa truyện trong `library/` sang một thiết bị khác mà không cung cấp mật khẩu chính.
+
+1. Chọn **Chia sẻ**.
+2. Đặt tên gợi nhớ, ví dụ `Máy đọc sách`.
+3. Chọn `library/` hoặc một thư mục con.
+4. Đặt thời hạn nếu cần.
+5. Chọn **Tạo kết nối**.
+6. Lưu URL, Username và Password vừa được hiển thị.
+
+<img src="docs/images/share-connection.png" alt="Hộp thông tin kết nối WebDAV chỉ đọc gồm URL, Username và Password mẫu" width="410">
+
+Nhập ba giá trị này vào phần **WebDAV** của thiết bị nhận. Kết nối chia sẻ:
+
+- Chỉ được duyệt và tải file.
+- Không được upload, tạo thư mục hoặc xóa file.
+- Có thể bị thu hồi hoặc hết hạn.
+- Ngừng hoạt động nếu tài khoản chủ bị tạm khóa hoặc xóa.
+
+Mật khẩu chia sẻ chỉ hiện lúc tạo hoặc đổi mật khẩu. Nếu quên, hãy tạo mật khẩu mới và cập nhật lại trên thiết bị nhận. Không gửi mật khẩu WebDAV chính cho người khác vì mật khẩu chính có quyền ghi và xóa dữ liệu.
+
+## Bảo vệ tài khoản và dữ liệu
+
+- Chỉ sử dụng dịch vụ qua địa chỉ HTTPS do người quản trị cung cấp.
+- Không gửi mật khẩu qua nhóm chat công khai hoặc đưa vào ảnh chụp màn hình.
+- Chỉ tạo kết nối chia sẻ cho người và thiết bị tin cậy.
+- Thu hồi kết nối không còn sử dụng.
+- Kiểm tra đúng tên file trước khi xóa hoặc khôi phục.
+- Dữ liệu tải lên có thể được người quản trị hệ thống truy cập; không dùng dịch vụ cho tài liệu cần mã hóa đầu cuối.
+
+## Xử lý lỗi thường gặp
+
+| Hiện tượng | Cách xử lý |
 | --- | --- |
-| Dung lượng đã dùng | Tổng dung lượng file hiện tại và lịch sử |
-| Dung lượng còn trống | Chỗ còn lại để lưu backup tiếp theo |
-| Giới hạn mỗi file | Kích thước tối đa của một bản upload, do admin thiết lập |
+| Không đăng nhập được, lỗi 401 | Kiểm tra URL, username và mật khẩu; sau nhiều lần sai hãy chờ 15 phút |
+| Lỗi 403 | Tài khoản có thể bị tạm khóa; liên hệ người quản trị |
+| File quá lớn, lỗi 413 | Kiểm tra Max File; mỗi request tối đa 100 MB |
+| Hết dung lượng, lỗi 507 | Xóa file hoặc lịch sử không cần thiết, hoặc xin tăng quota |
+| Backup xong nhưng chưa thấy file | Bấm **Làm mới**, chọn **Tất cả** và xóa nội dung tìm kiếm |
+| Upload web thất bại | Giữ trang mở, kiểm tra mạng, kích thước file và quota |
+| Không lưu được metadata | Kiểm tra mã ngôn ngữ và URL bìa phải là HTTPS |
+| Không dùng được kết nối chia sẻ | Kiểm tra đúng URL, username `reader`, mật khẩu và thời hạn |
+| Không liên kết được Google Drive | Kiểm tra quyền “Bất kỳ ai có đường liên kết”; người quản trị cần cấu hình Drive API key |
+| WebDAV Drive chỉ tải được file | Đây là kết nối chỉ đọc; quản lý file trực tiếp trong Google Drive |
+| Xóa đang chờ hoặc lỗi 503 | Chờ một lúc rồi chọn **Kiểm tra lại** |
+| Giao diện vẫn là bản cũ | Tải lại trang hoặc đóng và mở lại trình duyệt |
 
-Dung lượng dùng đơn vị **MB và GB**, với **1 GB = 1.000 MB**. Mỗi file upload tối đa **100 MB**, hoặc thấp hơn nếu tài khoản được đặt giới hạn nhỏ hơn.
+Khi cần hỗ trợ, gửi tên ứng dụng, thời điểm xảy ra lỗi và nội dung thông báo. Không gửi mật khẩu hoặc ảnh có thông tin kết nối đầy đủ.
 
-Ví dụ: một bản backup 75 MB và hai bản lịch sử cùng kích thước sẽ dùng khoảng **225 MB**. Khi hết chỗ, hãy xóa bản không cần hoặc nhờ admin tăng dung lượng.
+## Dành cho người quản trị
 
-## 6. Quản lý tài khoản dành cho admin
+Hướng dẫn tạo Worker, cấu hình R2/KV/Durable Object, quản lý tài khoản và secret nằm trong [tài liệu triển khai](docs/DEPLOYMENT.md).
 
-Mở địa chỉ trang quản trị được cung cấp và đăng nhập bằng mã quản trị.
-
-![Trang admin trên máy tính với tài khoản mẫu, form tạo tài khoản và danh sách quản lý](docs/images/admin-desktop.png)
-
-<details>
-<summary>Xem giao diện admin trên điện thoại</summary>
-
-<img src="docs/images/admin-mobile.png" alt="Trang admin trên điện thoại với các tài khoản minh họa" width="320">
-
-</details>
-
-### Tạo hoặc sửa tài khoản
-
-| Trường | Điền gì? |
-| --- | --- |
-| Username | Tên tài khoản để đăng nhập trong app và trên web |
-| Password | Mật khẩu tài khoản; khi sửa, để trống nếu muốn giữ mật khẩu cũ |
-| Quota (MB) | Tổng dung lượng được dùng, bao gồm lịch sử |
-| Max File (MB) | Dung lượng tối đa cho một file upload |
-
-Bấm **Save User** để tạo tài khoản. Để sửa, mở **Thao tác → Sửa thông tin**, thay đổi các ô cần thiết rồi bấm **Update User**.
-
-Ví dụ: với file backup 76,5 MB, có thể đặt **Max File = 95 MB** và chọn quota đủ cho số bản muốn giữ.
-
-### Các thao tác khác
-
-| Thao tác | Kết quả |
-| --- | --- |
-| **Mật khẩu** | Xem hoặc sao chép mật khẩu nếu tính năng đã được bật; cửa sổ tự đóng sau 30 giây |
-| **Thao tác → Tạm khóa** | Ngăn tài khoản tiếp tục sử dụng WebDAV |
-| **Thao tác → Mở khóa** | Cho phép tài khoản sử dụng lại |
-| **Thao tác → Xóa tài khoản** | Xóa tài khoản cùng toàn bộ file và lịch sử |
-
-Nếu chưa xem được mật khẩu, nhờ người thiết lập hệ thống bật tính năng này. Sau khi được bật, nhập lại mật khẩu trong **Sửa thông tin** một lần; có thể dùng lại mật khẩu hiện tại.
-
-## 7. Khi gặp lỗi
-
-| Thông báo / hiện tượng | Bạn nên làm gì? |
-| --- | --- |
-| Không đăng nhập được / lỗi 401 | Kiểm tra địa chỉ, tên tài khoản và mật khẩu; không dùng mã admin để backup |
-| Không có quyền / lỗi 403 | Nhờ admin kiểm tra tài khoản có bị khóa không; nếu ở trang admin, thử đăng nhập lại |
-| File quá lớn / lỗi 413 | Kiểm tra dung lượng file và giới hạn mỗi file của tài khoản; file trên 100 MB cần giảm dung lượng từ ứng dụng |
-| Hết dung lượng / lỗi 507 | Xóa bớt lịch sử hoặc nhờ admin tăng quota |
-| Không thể tạo thư mục backup | Kiểm tra có file trùng tên thư mục không; nếu vẫn lỗi, gửi thông báo cho admin |
-| Đang xử lý / lỗi 503 khi xóa | Chờ một lúc, sau đó dùng **Kiểm tra lại** hoặc **Làm mới** |
-| Backup xong nhưng chưa thấy file | Bấm **Làm mới**, chọn **Tất cả** và xóa nội dung ô tìm kiếm |
-| Giao diện vẫn giống bản cũ | Tải lại trang hoặc đóng rồi mở lại trình duyệt |
-
-Khi nhờ hỗ trợ, gửi tên ứng dụng và nội dung lỗi. Không gửi mật khẩu; che mật khẩu nếu xuất hiện trong ảnh.
-
----
-
-Bạn muốn tự cài đặt hoặc cập nhật server? Xem [hướng dẫn dành cho người triển khai](docs/DEPLOYMENT.md).
+`wrangler.jsonc`, `.dev.vars` và `plan-to-do.md` là file local, đã được Git bỏ qua và không được đưa lên GitHub.
 
 Giấy phép MIT — xem [LICENSE](LICENSE).

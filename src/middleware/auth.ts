@@ -3,6 +3,33 @@ import { AppEnv, UserConfig } from '../types';
 import { validUsername } from '../utils/path';
 import { hashPassword, verifyPassword, generateSalt } from '../utils/crypto';
 
+const MAX_AUTH_ATTEMPTS = 8;
+const AUTH_LOCK_SECONDS = 15 * 60;
+const DUMMY_SALT = '00000000000000000000000000000000';
+
+type AuthAttempts = { count: number; until: number };
+
+function unauthorized(c: Context<AppEnv>, status: 401 | 429 = 401): Response {
+  c.header('WWW-Authenticate', 'Basic realm="Vân Du"');
+  c.header('Cache-Control', 'private, no-store');
+  if (status === 429) c.header('Retry-After', String(AUTH_LOCK_SECONDS));
+  return c.text('Unauthorized', status);
+}
+
+async function authRateKey(c: Context<AppEnv>, username: string): Promise<string> {
+  const address = c.req.header('CF-Connecting-IP') || 'local';
+  const bytes = new TextEncoder().encode(`${address}\0${username}`);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return `ratelimit:user:${Array.from(digest.slice(0, 16), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+async function readAttempts(c: Context<AppEnv>, key: string): Promise<AuthAttempts> {
+  try {
+    const value = await c.env.USER_KV.get<AuthAttempts>(key, 'json');
+    return value && Number.isFinite(value.count) && Number.isFinite(value.until) ? value : { count: 0, until: 0 };
+  } catch { return { count: 0, until: 0 }; }
+}
+
 export const userAuthMiddleware = async (c: Context<AppEnv>, next: Next) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader || !authHeader.startsWith('Basic ')) {
@@ -12,6 +39,7 @@ export const userAuthMiddleware = async (c: Context<AppEnv>, next: Next) => {
 
   const base64Credentials = authHeader.substring(6);
   try {
+    if (base64Credentials.length > 2048) return c.text('Bad Request', 400);
     const bytes = Uint8Array.from(atob(base64Credentials), char => char.charCodeAt(0));
     const credentials = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
     // Only split on the FIRST colon — passwords may contain colons
@@ -22,38 +50,36 @@ export const userAuthMiddleware = async (c: Context<AppEnv>, next: Next) => {
     const username = credentials.substring(0, colonIndex);
     const password = credentials.substring(colonIndex + 1);
 
-    if (!validUsername(username) || !password) {
+    if (!validUsername(username) || !password || password.length > 256) {
       return c.text('Bad Request', 400);
     }
 
+    const rateKey = await authRateKey(c, username);
+    const attempts = await readAttempts(c, rateKey);
+    if (attempts.count >= MAX_AUTH_ATTEMPTS && attempts.until > Date.now()) return unauthorized(c, 429);
+
     const userConfigStr = await c.env.USER_KV.get(`user:${username}`);
-    // SECURITY (VULN-07): Always return the same generic error to prevent username enumeration
-    if (!userConfigStr) {
-      c.header('WWW-Authenticate', 'Basic realm="Vân Du"');
-      return c.text('Unauthorized', 401);
-    }
+    const userConfig = userConfigStr ? JSON.parse(userConfigStr) as UserConfig : null;
 
-    const userConfig = JSON.parse(userConfigStr) as UserConfig;
-    if (userConfig.status !== 'active') {
-      // Return 401 (not 403) to avoid leaking that the account exists but is suspended
-      c.header('WWW-Authenticate', 'Basic realm="Vân Du"');
-      return c.text('Unauthorized', 401);
-    }
-
-    // SECURITY (VULN-01): Support both PBKDF2-hashed (new) and plain-text legacy accounts
+    // Missing, suspended and invalid accounts perform comparable PBKDF2 work and return one response.
     let passwordValid = false;
-    if (userConfig.salt) {
-      // Modern account: verify using PBKDF2
+    if (!userConfig) {
+      await hashPassword(password, DUMMY_SALT);
+    } else if (userConfig.salt) {
       passwordValid = await verifyPassword(password, userConfig.password_hash, userConfig.salt);
     } else {
-      // Legacy account: plain-text comparison (will be upgraded on successful login)
+      await hashPassword(password, DUMMY_SALT);
       passwordValid = userConfig.password_hash === password;
     }
 
-    if (!passwordValid) {
-      c.header('WWW-Authenticate', 'Basic realm="Vân Du"');
-      return c.text('Unauthorized', 401);
+    if (!passwordValid || userConfig?.status !== 'active') {
+      const count = attempts.count + 1;
+      const until = count >= MAX_AUTH_ATTEMPTS ? Date.now() + AUTH_LOCK_SECONDS * 1000 : 0;
+      c.executionCtx.waitUntil(c.env.USER_KV.put(rateKey, JSON.stringify({ count, until }), { expirationTtl: AUTH_LOCK_SECONDS }));
+      return unauthorized(c, count >= MAX_AUTH_ATTEMPTS ? 429 : 401);
     }
+
+    if (attempts.count > 0) c.executionCtx.waitUntil(c.env.USER_KV.delete(rateKey));
 
     // SECURITY (VULN-01): Auto-upgrade legacy plain-text passwords to PBKDF2 on first login
     if (!userConfig.salt) {

@@ -21,3 +21,25 @@ export function sanitizeObjectKey(username: string, rawPath: string): string | n
   const suffix = segments.join('/') + (segments.length && path.endsWith('/') ? '/' : '');
   return `${username}/${suffix}`;
 }
+
+/** Resolve a once-decoded client path below a pre-validated owner prefix. */
+export function scopedObjectKey(username: string, prefix: string, rawPath: string): string | null {
+  if (!validUsername(username)) return null;
+  const normalizedPrefix = normalizeSharePrefix(prefix);
+  if (normalizedPrefix === null) return null;
+  let path: string;
+  try { path = decodeURIComponent(rawPath); } catch { return null; }
+  if (/[\x00-\x1f\x7f\\]/.test(path)) return null;
+  const segments = path.split('/').filter(Boolean);
+  if (segments.some(segment => segment === '.' || segment === '..')) return null;
+  const suffix = segments.join('/') + (segments.length && path.endsWith('/') ? '/' : '');
+  return `${username}/${normalizedPrefix}${suffix}`;
+}
+
+/** Shares are restricted to a folder at or below library/. */
+export function normalizeSharePrefix(value: string): string | null {
+  if (/[\x00-\x1f\x7f\\]/.test(value)) return null;
+  const segments = value.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  if (!segments.length || segments[0] !== 'library' || segments.some(segment => segment === '.' || segment === '..')) return null;
+  return `${segments.join('/')}/`;
+}

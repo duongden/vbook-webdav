@@ -4,13 +4,25 @@ import { adminApp } from './webui/admin';
 import { userAuthMiddleware } from './middleware/auth';
 import { webdavHandler } from './webdav/handler';
 import { webuiHandler, webuiDataHandler } from './webui/handler';
+import { shareApi, sharedApp } from './webdav/shares';
+import { metadataApi } from './webui/metadata';
+import { driveConfigApi, driveWebDavApp } from './webdav/google-drive';
 
 const app = new Hono<AppEnv>();
 
 app.use('*', async (c, next) => {
-  c.header('X-VBook-Version', 'drive-ui-20260905');
+  c.header('X-VBook-Version', 'drive-share-20260920');
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Referrer-Policy', 'no-referrer');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  c.header('Content-Security-Policy', "default-src 'none'; connect-src 'self'; img-src https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+  if (new URL(c.req.url).protocol === 'https:') c.header('Strict-Transport-Security', 'max-age=31536000');
   await next();
 });
+
+// Publicly reachable WebDAV shares use their own read-only credentials.
+app.route('/shared', sharedApp);
 
 // 1. Mount Admin Dashboard (No basic auth required, uses PIN cookie)
 app.route('/admin', adminApp);
@@ -19,6 +31,11 @@ app.all('/admin/*', (c) => c.notFound());
 
 // 2. Apply Basic Auth for all other routes
 app.use('*', userAuthMiddleware);
+
+app.route('/api/shares', shareApi);
+app.route('/api/metadata', metadataApi);
+app.route('/api/drive', driveConfigApi);
+app.route('/drive-webdav', driveWebDavApp);
 
 // 4. Main Router (Device Recognition)
 app.all('*', async (c) => {

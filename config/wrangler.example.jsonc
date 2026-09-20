@@ -1,5 +1,9 @@
 // Copy this file to wrangler.jsonc in the project root.
-// Set ADMIN_PIN with: npx wrangler secret put ADMIN_PIN
+// Set secrets with:
+//   npx wrangler secret put ADMIN_PIN
+//   npx wrangler secret put ADMIN_SESSION_SECRET
+//   npx wrangler secret put GOOGLE_API_KEY
+// ADMIN_SESSION_SECRET should be a random value of at least 32 bytes.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "vbook-webdav",

@@ -12,14 +12,14 @@
     "test:ui": "node --test tests/ui.browser.mjs"
   },
   "dependencies": {
-    "hono": "^4.12.21"
+    "hono": "^4.13.8"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260702.1",
-    "esbuild": "^0.27.3",
+    "@cloudflare/workers-types": "^5.20260920.1",
+    "esbuild": "^0.28.2",
     "miniflare": "^4.20260518.0",
     "playwright": "^1.63.0",
     "typescript": "^7.0.2",
-    "wrangler": "^4.4.0"
+    "wrangler": "^4.135.0"
   }
 }

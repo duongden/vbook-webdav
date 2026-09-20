@@ -3,6 +3,13 @@ import { AppEnv } from '../types';
 import { requestObjectKey, encodePath, validUsername } from '../utils/path';
 import { storageRequest } from '../storage/client';
 
+export interface DavAccess {
+  owner: string;
+  rootKey: string;
+  mountPath: string;
+  writable: boolean;
+}
+
 function formatHTTPDate(date: Date) {
   return date.toUTCString();
 }
@@ -13,174 +20,148 @@ function formatISO8601(date: Date) {
 
 function escapeXML(str: string) {
   return str.replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
-async function handlePropfind(c: Context<AppEnv>) {
-  const username = c.get('username');
-  const sanitized = requestObjectKey(username, c.req.url);
-  if (sanitized === null) {
-    return c.text('Forbidden', 403);
-  }
+function contentType(name: string, stored?: string): string {
+  if (stored && stored !== 'application/octet-stream') return stored;
+  const extension = name.toLowerCase().split('.').pop();
+  return ({
+    epub: 'application/epub+zip', pdf: 'application/pdf', cbz: 'application/vnd.comicbook+zip',
+    cbr: 'application/vnd.comicbook-rar', mobi: 'application/x-mobipocket-ebook',
+    azw: 'application/vnd.amazon.ebook', azw3: 'application/vnd.amazon.mobi8-ebook',
+    fb2: 'application/x-fictionbook+xml', txt: 'text/plain; charset=utf-8', zip: 'application/zip',
+  } as Record<string, string>)[extension || ''] || 'application/octet-stream';
+}
 
+function canonicalHref(access: DavAccess, objectKey: string, directory: boolean): string {
+  const relative = objectKey.substring(access.rootKey.length);
+  let href = access.mountPath + encodePath(relative);
+  if (directory && !href.endsWith('/')) href += '/';
+  return href;
+}
+
+async function handlePropfind(c: Context<AppEnv>, access: DavAccess, objectKey: string) {
   const depth = c.req.header('Depth') || '1';
   if (depth !== '0' && depth !== '1') {
     return c.body('<D:error xmlns:D="DAV:"><D:propfind-finite-depth/></D:error>', 403, { 'Content-Type': 'application/xml' });
   }
-  const prefix = sanitized.endsWith('/') ? sanitized : sanitized + '/';
-  const filePrefix = sanitized;
-  let xml = `<?xml version="1.0" encoding="utf-8" ?>\n`;
-  xml += `<D:multistatus xmlns:D="DAV:">\n`;
-
-  // For Depth 0 or 1, we always need the root element of the request
-  const isRoot = sanitized === `${username}/`;
-
-  // If not root, check if it's a file or directory
-  let isDirectory = sanitized.endsWith('/') || isRoot;
+  const prefix = objectKey.endsWith('/') ? objectKey : `${objectKey}/`;
+  const isRoot = objectKey === access.rootKey;
+  let isDirectory = objectKey.endsWith('/') || isRoot;
   let rootSize = 0;
   let rootLastModified = new Date();
+  let rootType = 'application/octet-stream';
 
   if (isDirectory && !isRoot) {
-    const exists = await c.env.STORAGE_R2.list({ prefix, limit: 1 });
-    if (!exists.objects.length) return c.text('Not Found', 404);
+    const exists = await c.env.STORAGE_R2.list({ prefix, delimiter: '/', limit: 1 });
+    if (!exists.objects.length && !exists.delimitedPrefixes.length) return c.text('Not Found', 404);
   }
   if (!isDirectory) {
-    const obj = await c.env.STORAGE_R2.head(filePrefix);
-    if (obj) {
-      rootSize = obj.size;
-      rootLastModified = obj.uploaded;
+    const object = await c.env.STORAGE_R2.head(objectKey);
+    if (object) {
+      rootSize = object.size;
+      rootLastModified = object.uploaded;
+      rootType = contentType(objectKey, object.httpMetadata?.contentType);
     } else {
-      // Might be a directory without trailing slash
-      const list = await c.env.STORAGE_R2.list({ prefix: filePrefix + '/', limit: 1 });
-      if (list.objects.length > 0 || list.delimitedPrefixes.length > 0) {
-        isDirectory = true;
-      } else {
-        return c.text('Not Found', 404);
-      }
+      const listed = await c.env.STORAGE_R2.list({ prefix, delimiter: '/', limit: 1 });
+      if (listed.objects.length || listed.delimitedPrefixes.length) isDirectory = true;
+      else return c.text('Not Found', 404);
     }
   }
 
-  const renderResponse = (href: string, isCollection: boolean, size: number, lastModified: Date) => {
-    let res = `  <D:response>\n`;
-    res += `    <D:href>${escapeXML(href)}</D:href>\n`;
-    res += `    <D:propstat>\n`;
-    res += `      <D:prop>\n`;
-    if (isCollection) {
-      res += `        <D:resourcetype><D:collection/></D:resourcetype>\n`;
-    } else {
-      res += `        <D:resourcetype/>\n`;
-      res += `        <D:getcontentlength>${size}</D:getcontentlength>\n`;
-      res += `        <D:getcontenttype>application/octet-stream</D:getcontenttype>\n`;
-    }
-    res += `        <D:getlastmodified>${formatHTTPDate(lastModified)}</D:getlastmodified>\n`;
-    res += `        <D:creationdate>${formatISO8601(lastModified)}</D:creationdate>\n`;
-    res += `      </D:prop>\n`;
-    res += `      <D:status>HTTP/1.1 200 OK</D:status>\n`;
-    res += `    </D:propstat>\n`;
-    res += `  </D:response>\n`;
-    return res;
+  const renderResponse = (href: string, collection: boolean, size: number, lastModified: Date, type = 'application/octet-stream') => {
+    let response = `  <D:response>\n    <D:href>${escapeXML(href)}</D:href>\n    <D:propstat>\n      <D:prop>\n`;
+    if (collection) response += '        <D:resourcetype><D:collection/></D:resourcetype>\n';
+    else response += `        <D:resourcetype/>\n        <D:getcontentlength>${size}</D:getcontentlength>\n        <D:getcontenttype>${escapeXML(type)}</D:getcontenttype>\n`;
+    response += `        <D:getlastmodified>${formatHTTPDate(lastModified)}</D:getlastmodified>\n        <D:creationdate>${formatISO8601(lastModified)}</D:creationdate>\n      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n  </D:response>\n`;
+    return response;
   };
 
-  const requestPath = new URL(c.req.url).pathname;
-  const mount = /^\/webdav(?:\/|$)/.test(requestPath) ? '/webdav' : '';
-  const relative = sanitized.substring(username.length);
-  const reqHref = mount + encodePath(relative) + (isDirectory && !relative.endsWith('/') ? '/' : '');
-  xml += renderResponse(reqHref, isDirectory, rootSize, rootLastModified);
+  const requestHref = canonicalHref(access, objectKey, isDirectory);
+  let xml = '<?xml version="1.0" encoding="utf-8" ?>\n<D:multistatus xmlns:D="DAV:">\n';
+  xml += renderResponse(requestHref, isDirectory, rootSize, rootLastModified, rootType);
 
   if (depth === '1' && isDirectory) {
-    let listOptions: R2ListOptions = { prefix, delimiter: '/' };
-    let listed;
-    const allPrefixes = [];
-    const allObjects = [];
-
+    let cursor: string | undefined;
     do {
-      listed = await c.env.STORAGE_R2.list(listOptions);
-      allPrefixes.push(...listed.delimitedPrefixes);
-      allObjects.push(...listed.objects);
-      listOptions.cursor = listed.truncated ? listed.cursor : undefined;
-    } while (listed.truncated);
-
-    // Add subdirectories
-    for (const subPrefix of allPrefixes) {
-      const dirName = subPrefix.substring(prefix.length); // e.g. "my folder/"
-      const cleanDirName = dirName.endsWith('/') ? dirName.slice(0, -1) : dirName;
-      const encodedDirName = encodeURIComponent(cleanDirName) + '/';
-      const subHref = reqHref.endsWith('/') ? `${reqHref}${encodedDirName}` : `${reqHref}/${encodedDirName}`;
-      xml += renderResponse(subHref, true, 0, new Date());
-    }
-
-    // Add files
-    for (const obj of allObjects) {
-      if (obj.key === prefix) continue; // skip the folder itself if it exists as an object
-      const fileName = obj.key.substring(prefix.length); // e.g. "my file.txt"
-      const encodedFileName = encodeURIComponent(fileName);
-      const subHref = reqHref.endsWith('/') ? `${reqHref}${encodedFileName}` : `${reqHref}/${encodedFileName}`;
-      xml += renderResponse(subHref, false, obj.size, obj.uploaded);
-    }
+      const listed = await c.env.STORAGE_R2.list({ prefix, delimiter: '/', cursor });
+      for (const subPrefix of listed.delimitedPrefixes) {
+        const name = subPrefix.substring(prefix.length).replace(/\/$/, '');
+        const href = `${requestHref.endsWith('/') ? requestHref : `${requestHref}/`}${encodeURIComponent(name)}/`;
+        xml += renderResponse(href, true, 0, new Date());
+      }
+      for (const object of listed.objects) {
+        if (object.key === prefix) continue;
+        const name = object.key.substring(prefix.length);
+        const href = `${requestHref.endsWith('/') ? requestHref : `${requestHref}/`}${encodeURIComponent(name)}`;
+        xml += renderResponse(href, false, object.size, object.uploaded, contentType(name, object.httpMetadata?.contentType));
+      }
+      cursor = listed.truncated ? listed.cursor : undefined;
+    } while (cursor);
   }
 
-  xml += `</D:multistatus>`;
   c.header('Content-Type', 'application/xml; charset=utf-8');
-  return c.body(xml, 207);
+  c.header('Cache-Control', 'private, no-store');
+  return c.body(`${xml}</D:multistatus>`, 207);
 }
 
-export const webdavHandler = async (c: Context<AppEnv>) => {
+export async function readWebDav(c: Context<AppEnv>, access: DavAccess, objectKey: string): Promise<Response> {
+  if (!objectKey.startsWith(access.rootKey)) return c.text('Forbidden', 403);
   const method = c.req.method;
-  const username = c.get('username');
-  if (!validUsername(username || '') || !c.get('user')) return c.text('Unauthorized', 401);
-  const objectKey = requestObjectKey(username, c.req.url);
-  if (objectKey === null) {
-    return c.text('Forbidden', 403);
-  }
-
   if (method === 'OPTIONS') {
-    c.header('Allow', 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND');
+    c.header('Allow', access.writable ? 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND' : 'OPTIONS, GET, HEAD, PROPFIND');
     c.header('DAV', '1');
     return c.text('', 200);
   }
+  if (method === 'PROPFIND') return handlePropfind(c, access, objectKey);
+  if (method !== 'GET' && method !== 'HEAD') return c.text('Method Not Allowed', 405, { Allow: 'OPTIONS, GET, HEAD, PROPFIND' });
 
-  if (method === 'PROPFIND') {
-    return handlePropfind(c);
+  const object = method === 'HEAD' ? await c.env.STORAGE_R2.head(objectKey) : await c.env.STORAGE_R2.get(objectKey);
+  if (!object) {
+    if (method === 'HEAD') {
+      const prefix = objectKey.endsWith('/') ? objectKey : `${objectKey}/`;
+      const listed = await c.env.STORAGE_R2.list({ prefix, delimiter: '/', limit: 1 });
+      if (objectKey === access.rootKey || listed.objects.length || listed.delimitedPrefixes.length) {
+        return new Response(null, { status: 200, headers: { 'Content-Length': '0', 'Cache-Control': 'private, no-store' } });
+      }
+    }
+    return c.text('Not Found', 404);
   }
 
+  const filename = objectKey.split('/').pop() || 'download';
+  const encodedName = encodeURIComponent(filename).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  const headers = new Headers({
+    // Downloads are always attachments and never rendered as active browser content.
+    'Content-Type': 'application/octet-stream',
+    'Content-Disposition': `attachment; filename="download"; filename*=UTF-8''${encodedName}`,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "sandbox; default-src 'none'",
+    'ETag': object.httpEtag,
+    'Last-Modified': object.uploaded.toUTCString(),
+    'Content-Length': object.size.toString(),
+    'Cache-Control': 'private, no-store, no-transform',
+  });
+  if (method === 'HEAD') return new Response(null, { headers, status: 200 });
+  return new Response((object as R2ObjectBody).body, { headers, status: 200 });
+}
+
+export const webdavHandler = async (c: Context<AppEnv>) => {
+  const username = c.get('username');
+  if (!validUsername(username || '') || !c.get('user')) return c.text('Unauthorized', 401);
+  const objectKey = requestObjectKey(username, c.req.url);
+  if (objectKey === null) return c.text('Forbidden', 403);
+
+  const method = c.req.method;
   if (method === 'MKCOL' || method === 'PUT' || method === 'DELETE') {
     return storageRequest(c.env, username, method === 'MKCOL' ? 'mkcol' : method.toLowerCase(), {
       key: objectKey, request: c.req.raw, user: c.get('user'),
     });
   }
-
-  if (method === 'GET' || method === 'HEAD') {
-    const obj = method === 'HEAD' ? await c.env.STORAGE_R2.head(objectKey) : await c.env.STORAGE_R2.get(objectKey);
-    if (!obj) {
-      if (method === 'HEAD') {
-        const prefix = objectKey.endsWith('/') ? objectKey : `${objectKey}/`;
-        const exists = objectKey === `${username}/` || (await c.env.STORAGE_R2.list({ prefix, limit: 1 })).objects.length > 0;
-        if (exists) return new Response(null, { status: 200, headers: { 'Content-Length': '0', 'Cache-Control': 'private, no-store' } });
-      }
-      return c.text('Not Found', 404);
-    }
-
-    const headers = new Headers();
-    const filename = objectKey.split('/').pop() || 'download';
-    const encodedName = encodeURIComponent(filename).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
-    headers.set('Content-Type', 'application/octet-stream');
-    headers.set('Content-Disposition', `attachment; filename="download"; filename*=UTF-8''${encodedName}`);
-    headers.set('X-Content-Type-Options', 'nosniff');
-    headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
-    headers.set('ETag', obj.httpEtag);
-    headers.set('Last-Modified', obj.uploaded.toUTCString());
-    headers.set('Content-Length', obj.size.toString());
-    // CRITICAL: Prevent Cloudflare from auto-compressing and breaking Content-Length
-    headers.set('Cache-Control', 'private, no-store, no-transform');
-
-    if (method === 'HEAD') {
-      return new Response(null, { headers, status: 200 });
-    }
-    return new Response((obj as R2ObjectBody).body, { headers, status: 200 });
-  }
-
-  return c.text('Method Not Allowed', 405);
+  const pathname = new URL(c.req.url).pathname;
+  const mountPath = /^\/webdav(?:\/|$)/.test(pathname) ? '/webdav/' : '/';
+  return readWebDav(c, { owner: username, rootKey: `${username}/`, mountPath, writable: true }, objectKey);
 };

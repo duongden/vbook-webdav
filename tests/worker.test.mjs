@@ -10,10 +10,27 @@ import { Miniflare, Log, LogLevel } from 'miniflare';
 let mf, bucket, kv, directory, scriptPath;
 const pin = 'test-only-admin-secret';
 const password = 'mật khẩu:a:b';
+const driveRootId = 'ROOT_FOLDER_12345';
 const config = () => ({
   modules: true, scriptPath, modulesRoot: directory, compatibilityDate: '2026-05-20',
-  bindings: { ADMIN_PIN: pin, PASSWORD_VAULT_KEY: 'ab'.repeat(32) }, kvNamespaces: ['USER_KV'], r2Buckets: ['STORAGE_R2'],
+  bindings: { ADMIN_PIN: pin, PASSWORD_VAULT_KEY: 'ab'.repeat(32), GOOGLE_API_KEY: 'test-drive-key' }, kvNamespaces: ['USER_KV'], r2Buckets: ['STORAGE_R2'],
   durableObjects: { USER_STORAGE: { className: 'UserStorage', useSQLite: true } },
+  outboundService: request => {
+    const url = new URL(request.url);
+    if (url.origin !== 'https://www.googleapis.com' || url.searchParams.get('key') !== 'test-drive-key') return new Response('blocked', { status: 502 });
+    if (url.pathname === `/drive/v3/files/${driveRootId}`) return Response.json({ id: driveRootId, name: 'Books', mimeType: 'application/vnd.google-apps.folder' });
+    if (url.pathname === '/drive/v3/files') {
+      const query = url.searchParams.get('q') || '';
+      if (query.includes(`'${driveRootId}' in parents`)) return Response.json({ files: [
+        { id: 'SUB_FOLDER_12345', name: 'Tiên Hiệp', mimeType: 'application/vnd.google-apps.folder', modifiedTime: '2026-09-20T01:02:03Z' },
+        { id: 'BOOK_FILE_12345', name: 'Sách & truyện.epub', mimeType: 'application/epub+zip', size: '1234', modifiedTime: '2026-09-20T02:03:04Z' },
+      ] });
+      if (query.includes("'SUB_FOLDER_12345' in parents")) return Response.json({ files: [
+        { id: 'NESTED_FILE_12345', name: 'Tập 1.pdf', mimeType: 'application/pdf', size: '5678', modifiedTime: '2026-09-20T03:04:05Z' },
+      ] });
+    }
+    return new Response('not found', { status: 404 });
+  },
   log: new Log(LogLevel.ERROR),
 });
 before(async () => {
@@ -199,6 +216,36 @@ test('missing ADMIN_PIN fails closed for both login and dashboard', async () => 
   } finally { await unconfigured.dispose(); }
 });
 
+test('security headers, request body limits and user login throttling fail closed', async () => {
+  const name = await user('security_user');
+  const authorization = `Basic ${Buffer.from(`${name}:${password}`).toString('base64')}`;
+  const page = await mf.dispatchFetch('https://test.local/', { headers: { Authorization: authorization, Accept: 'text/html' } });
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('X-Frame-Options'), 'DENY');
+  assert.equal(page.headers.get('Referrer-Policy'), 'no-referrer');
+  assert.match(page.headers.get('Content-Security-Policy'), /frame-ancestors 'none'/);
+  assert.match(page.headers.get('Strict-Transport-Security'), /max-age=31536000/);
+
+  const oversized = JSON.stringify({ path: 'library/book.epub', metadata: { description: 'x'.repeat(20_000) } });
+  const limited = await mf.dispatchFetch('https://test.local/api/metadata', {
+    method: 'PUT',
+    headers: { Authorization: authorization, Origin: 'https://test.local', 'X-VBook-Action': 'metadata', 'Content-Type': 'application/json' },
+    body: oversized,
+  });
+  assert.equal(limited.status, 413);
+
+  const badAuthorization = `Basic ${Buffer.from(`${name}:wrong-password`).toString('base64')}`;
+  for (let attempt = 1; attempt <= 7; attempt++) {
+    const response = await mf.dispatchFetch('https://test.local/', { headers: { Authorization: badAuthorization, 'CF-Connecting-IP': '203.0.113.9' } });
+    assert.equal(response.status, 401);
+  }
+  const locked = await mf.dispatchFetch('https://test.local/', { headers: { Authorization: badAuthorization, 'CF-Connecting-IP': '203.0.113.9' } });
+  assert.equal(locked.status, 429);
+  assert.equal(locked.headers.get('Retry-After'), '900');
+  const validButLocked = await mf.dispatchFetch('https://test.local/', { headers: { Authorization: authorization, 'CF-Connecting-IP': '203.0.113.9' } });
+  assert.equal(validButLocked.status, 429);
+});
+
 test('JSON inventory is authenticated, scoped to the user and never cached', async () => {
   const alice = await user('inventory_a'), bob = await user('inventory_b');
   await bucket.put(`${alice}/a&b.json`, 'data');
@@ -214,6 +261,153 @@ test('JSON inventory is authenticated, scoped to the user and never cached', asy
   assert.ok(!JSON.stringify(data).includes('password'));
   const unauthorized = await mf.dispatchFetch('https://test.local/', { headers: { Accept: 'application/json' } });
   assert.equal(unauthorized.status, 401);
+});
+
+test('Google Drive WebDAV is opt-in, read-only and protects configuration mutations', async () => {
+  const name = await user('drive_webdav');
+  const authorization = `Basic ${Buffer.from(`${name}:${password}`).toString('base64')}`;
+  const root = 'https://test.local/drive-webdav/';
+  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } })).status, 404);
+  assert.equal((await mf.dispatchFetch(root, { method: 'PUT', headers: { Authorization: authorization, 'Content-Length': '1' }, body: 'x' })).status, 404);
+
+  const status = await mf.dispatchFetch('https://test.local/api/drive', { headers: { Authorization: authorization } });
+  assert.equal(status.status, 200);
+  assert.deepEqual(await status.json(), { configured: false, available: true, url: root });
+
+  const invalid = await mf.dispatchFetch('https://test.local/api/drive', {
+    method: 'PUT', headers: { Authorization: authorization, Origin: 'https://test.local', 'X-VBook-Action': 'drive', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: 'https://evil.example/drive/folders/1234567890' }),
+  });
+  assert.equal(invalid.status, 400);
+  const crossSite = await mf.dispatchFetch('https://test.local/api/drive', {
+    method: 'DELETE', headers: { Authorization: authorization, Origin: 'https://evil.example', 'X-VBook-Action': 'drive' },
+  });
+  assert.equal(crossSite.status, 403);
+
+  const actionHeaders = { Authorization: authorization, Origin: 'https://test.local', 'X-VBook-Action': 'drive', 'Content-Type': 'application/json' };
+  const connected = await mf.dispatchFetch('https://test.local/api/drive', {
+    method: 'PUT', headers: actionHeaders, body: JSON.stringify({ url: `https://drive.google.com/drive/folders/${driveRootId}` }),
+  });
+  assert.equal(connected.status, 200);
+  assert.deepEqual(await connected.json(), { configured: true, url: root });
+
+  const propfind = await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
+  assert.equal(propfind.status, 207);
+  const xml = await propfind.text();
+  assert.match(xml, /Ti%C3%AAn%20Hi%E1%BB%87p\//);
+  assert.match(xml, /S%C3%A1ch%20%26%20truy%E1%BB%87n\.epub/);
+  assert.doesNotMatch(xml, /ROOT_FOLDER|BOOK_FILE|test-drive-key/);
+
+  const nested = await mf.dispatchFetch(root + encodeURIComponent('Tiên Hiệp') + '/', { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
+  assert.equal(nested.status, 207);
+  assert.match(await nested.text(), /T%E1%BA%ADp%201\.pdf/);
+
+  const download = await mf.dispatchFetch(root + encodeURIComponent('Sách & truyện.epub'), { headers: { Authorization: authorization }, redirect: 'manual' });
+  assert.equal(download.status, 302);
+  assert.equal(download.headers.get('location'), 'https://drive.google.com/uc?export=download&id=BOOK_FILE_12345&confirm=t');
+  assert.equal((await mf.dispatchFetch(root + 'new.epub', { method: 'PUT', headers: { Authorization: authorization, 'Content-Length': '1' }, body: 'x' })).status, 405);
+
+  assert.equal((await mf.dispatchFetch('https://test.local/api/drive', { method: 'DELETE', headers: actionHeaders })).status, 204);
+  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization } })).status, 404);
+});
+
+test('read-only WebDAV shares are scoped, revocable and use independent credentials', async () => {
+  const name = await user('share_owner');
+  await bucket.put(`${name}/library/Fantasy/Sách & truyện.epub`, 'book-data');
+  await bucket.put(`${name}/library-private/secret.epub`, 'secret');
+  await bucket.put(`${name}/backup-history/old.zip`, 'history');
+  const ownerAuth = `Basic ${Buffer.from(`${name}:${password}`).toString('base64')}`;
+  const actionHeaders = { Authorization: ownerAuth, Origin: 'https://test.local', 'X-VBook-Action': 'shares', 'Content-Type': 'application/json' };
+  const created = await mf.dispatchFetch('https://test.local/api/shares', {
+    method: 'POST', headers: actionHeaders, body: JSON.stringify({ label: 'Gia đình', prefix: 'library/Fantasy/' }),
+  });
+  assert.equal(created.status, 201);
+  const payload = await created.json();
+  assert.equal(payload.connection.username, 'reader');
+  assert.ok(payload.connection.password.length >= 40);
+  const sharedAuth = `Basic ${Buffer.from(`reader:${payload.connection.password}`).toString('base64')}`;
+  const root = payload.connection.url;
+
+  const propfind = await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: sharedAuth, Depth: '1' } });
+  assert.equal(propfind.status, 207);
+  const xml = await propfind.text();
+  assert.match(xml, /S%C3%A1ch%20%26%20truy%E1%BB%87n\.epub/);
+  assert.doesNotMatch(xml, /secret|backup-history/);
+
+  const download = await mf.dispatchFetch(root + encodeURIComponent('Sách & truyện.epub'), { headers: { Authorization: sharedAuth } });
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('Content-Type'), 'application/octet-stream');
+  assert.equal(await download.text(), 'book-data');
+  assert.equal((await mf.dispatchFetch(root + 'new.epub', { method: 'PUT', headers: { Authorization: sharedAuth, 'Content-Length': '1' }, body: 'x' })).status, 405);
+  assert.equal((await mf.dispatchFetch(root, { method: 'DELETE', headers: { Authorization: sharedAuth } })).status, 405);
+  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: 'Basic ' + Buffer.from('reader:wrong').toString('base64') } })).status, 401);
+
+  const list = await mf.dispatchFetch('https://test.local/api/shares', { headers: { Authorization: ownerAuth } });
+  assert.equal(list.status, 200);
+  const listed = await list.json();
+  assert.equal(listed.shares.length, 1);
+  assert.equal(Object.hasOwn(listed.shares[0], 'secret_hash'), false);
+
+  const id = listed.shares[0].id;
+  const rotated = await mf.dispatchFetch(`https://test.local/api/shares/${id}/rotate`, { method: 'POST', headers: actionHeaders });
+  assert.equal(rotated.status, 200);
+  const next = await rotated.json();
+  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: sharedAuth } })).status, 401);
+  const nextAuth = `Basic ${Buffer.from(`reader:${next.connection.password}`).toString('base64')}`;
+  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: nextAuth } })).status, 207);
+
+  const revoked = await mf.dispatchFetch(`https://test.local/api/shares/${id}`, { method: 'DELETE', headers: actionHeaders });
+  assert.equal(revoked.status, 204);
+  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: nextAuth } })).status, 401);
+});
+
+test('share creation rejects cross-site mutations and paths outside library', async () => {
+  const name = await user('share_csrf');
+  const authorization = `Basic ${Buffer.from(`${name}:${password}`).toString('base64')}`;
+  const create = (prefix, headers = {}) => mf.dispatchFetch('https://test.local/api/shares', {
+    method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ label: 'Test', prefix }),
+  });
+  assert.equal((await create('library/', { Origin: 'https://evil.example', 'X-VBook-Action': 'shares' })).status, 403);
+  assert.equal((await create('library/')).status, 403);
+  assert.equal((await create('backup-history/', { Origin: 'https://test.local', 'X-VBook-Action': 'shares' })).status, 400);
+  assert.equal((await create('library/../backup-history/', { Origin: 'https://test.local', 'X-VBook-Action': 'shares' })).status, 400);
+});
+
+test('book metadata overrides are validated, tenant-scoped and removed with the file', async () => {
+  const name = await user('metadata_owner');
+  await bucket.put(`${name}/library/book.epub`, 'book');
+  const authorization = `Basic ${Buffer.from(`${name}:${password}`).toString('base64')}`;
+  const headers = { Authorization: authorization, Origin: 'https://test.local', 'X-VBook-Action': 'metadata', 'Content-Type': 'application/json' };
+  const metadata = { title: 'Tên hiển thị', author: 'Tác giả', language: 'vi', category: 'Tiên hiệp', description: 'Mô tả', coverUrl: 'https://images.example/cover.jpg' };
+  const saved = await mf.dispatchFetch('https://test.local/api/metadata', {
+    method: 'PUT', headers, body: JSON.stringify({ path: 'library/book.epub', metadata }),
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual((await saved.json()).metadata, metadata);
+
+  const inventory = await mf.dispatchFetch('https://test.local/', { headers: { Authorization: authorization, Accept: 'application/json' } });
+  assert.equal(inventory.status, 200);
+  assert.deepEqual((await inventory.json()).files[0].metadata, metadata);
+  const html = await (await mf.dispatchFetch('https://test.local/', { headers: { Authorization: authorization, Accept: 'text/html' } })).text();
+  assert.match(html, /Tên hiển thị/);
+  assert.match(html, /Tác giả/);
+
+  const invalidLanguage = await mf.dispatchFetch('https://test.local/api/metadata', {
+    method: 'PUT', headers, body: JSON.stringify({ path: 'library/book.epub', metadata: { language: 'not a language' } }),
+  });
+  assert.equal(invalidLanguage.status, 400);
+  const invalidCover = await mf.dispatchFetch('https://test.local/api/metadata', {
+    method: 'PUT', headers, body: JSON.stringify({ path: 'library/book.epub', metadata: { coverUrl: 'http://unsafe.example/cover.jpg' } }),
+  });
+  assert.equal(invalidCover.status, 400);
+  assert.equal((await mf.dispatchFetch('https://test.local/api/metadata', {
+    method: 'PUT', headers, body: JSON.stringify({ path: 'backup-history/private.zip', metadata: { title: 'No' } }),
+  })).status, 400);
+
+  assert.equal((await request(name, '/library/book.epub', 'DELETE')).status, 204);
+  const records = await mf.dispatchFetch('https://test.local/api/metadata', { headers: { Authorization: authorization } });
+  assert.deepEqual((await records.json()).records, []);
 });
 
 

@@ -2,21 +2,24 @@ import { Context } from 'hono';
 import { html, raw } from 'hono/html';
 import { AppEnv } from '../types';
 import { getUsage } from '../storage/client';
+import { getBookMetadata } from '../storage/client';
+import type { BookMetadata } from '../types';
 import { encodePath } from '../utils/path';
 import { driveStyles } from './drive-styles';
 import { driveScript } from './drive-script';
 
-interface DriveFile { name: string; size: number; uploaded: string }
+interface DriveFile { name: string; size: number; uploaded: string; metadata?: BookMetadata }
 
 async function inventory(c: Context<AppEnv>) {
   const username = c.get('username');
   const files: DriveFile[] = [];
+  const metadata = new Map((await getBookMetadata(c.env, username)).map(record => [record.path, record.metadata]));
   let cursor: string | undefined;
   do {
     const page = await c.env.STORAGE_R2.list({ prefix: `${username}/`, cursor });
     for (const object of page.objects) {
       if (!object.key.endsWith('/')) {
-        files.push({ name: object.key.substring(username.length + 1), size: object.size, uploaded: object.uploaded.toISOString() });
+        files.push({ name: object.key.substring(username.length + 1), size: object.size, uploaded: object.uploaded.toISOString(), metadata: metadata.get(object.key) });
       }
     }
     cursor = page.truncated ? page.cursor : undefined;
@@ -44,21 +47,26 @@ function formatDate(value: string): string {
 const fileIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
 const deleteIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>`;
 const downloadIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg>`;
+const editIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m13.5 8 3 3"/></svg>`;
+const linkIcon = html`<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1"/></svg>`;
 
 function fileRow(file: DriveFile) {
   const slash = file.name.lastIndexOf('/');
   const base = file.name.substring(slash + 1);
   const parent = slash >= 0 ? file.name.substring(0, slash) : 'Thư mục gốc';
+  const displayTitle = file.metadata?.title || base;
+  const editable = file.name.startsWith('library/');
   const kind = /\.(zip|gz|rar|7z)$/i.test(base) ? 'archive' : /\.(json|db|xml)$/i.test(base) ? 'data' : 'file';
-  return html`<article class="file-row" data-file data-name="${file.name}" data-size="${file.size}" data-uploaded="${file.uploaded}">
+  return html`<article class="file-row" data-file data-name="${file.name}" data-size="${file.size}" data-uploaded="${file.uploaded}" data-metadata="${JSON.stringify(file.metadata || {})}">
     <div class="file-main"><div class="file-icon" data-kind="${kind}">${fileIcon}</div>
-      <div class="file-label"><h3 class="file-name" title="${file.name}">${base}</h3><div class="file-path">${parent}</div><span class="file-state" hidden></span></div>
+      <div class="file-label"><h3 class="file-name" title="${file.name}">${displayTitle}</h3><div class="file-author" ${file.metadata?.author ? '' : 'hidden'}>${file.metadata?.author || ''}</div><div class="file-path">${parent}</div><span class="file-state" hidden></span></div>
     </div>
     <div class="file-size">${formatBytes(file.size)}</div>
     <time class="file-date" datetime="${file.uploaded}">${formatDate(file.uploaded)}</time>
     <div class="file-actions">
-      <a class="btn btn-quiet download-file" href="/webdav/${encodePath(file.name)}" aria-label="Tải xuống ${base}">${downloadIcon}<span>Tải về</span></a>
-      <button type="button" class="btn btn-danger delete-file" data-name="${file.name}" aria-label="Xóa ${base}">${deleteIcon}<span>Xóa</span></button>
+      <button type="button" class="btn btn-quiet file-action edit-file" aria-label="Sửa thông tin ${base}" title="Sửa thông tin" ${editable ? '' : 'hidden'}>${editIcon}</button>
+      <a class="btn btn-quiet file-action download-file" href="/webdav/${encodePath(file.name)}" aria-label="Tải xuống ${base}" title="Tải xuống">${downloadIcon}</a>
+      <button type="button" class="btn btn-danger file-action delete-file" data-name="${file.name}" aria-label="Xóa ${base}" title="Xóa">${deleteIcon}</button>
     </div>
   </article>`;
 }
@@ -90,7 +98,7 @@ export const webuiHandler = async (c: Context<AppEnv>) => {
     <div class="drive-main">
     <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">Không gian lưu trữ cá nhân</p><h1 id="page-title">Tệp của tôi</h1><p class="subtitle">Các bản sao lưu từ VBook và Legado, gọn gàng ở một nơi.</p></div><span class="connection"><span class="dot"></span>WebDAV</span></section>
     <section class="files-panel" aria-labelledby="files-title">
-      <div class="panel-heading"><div class="panel-title"><h2 id="files-title">Tất cả tệp</h2><span class="count" id="file-count">${files.length}</span></div><button type="button" class="btn" id="refresh-files"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Làm mới</span></button></div>
+      <div class="panel-heading"><div class="panel-title"><h2 id="files-title">Tất cả tệp</h2><span class="count" id="file-count">${files.length}</span></div><div class="panel-actions"><button type="button" class="btn" id="manage-drive" aria-label="Liên kết Google Drive" title="Liên kết Google Drive">${linkIcon}<span>Drive</span></button><button type="button" class="btn" id="manage-shares">Chia sẻ</button><button type="button" class="btn btn-primary" id="open-upload">Tải tệp lên</button><button type="button" class="btn" id="refresh-files"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Làm mới</span></button></div></div>
 
       <div class="toolbar"><label class="search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span class="visually-hidden">Tìm theo tên tệp hoặc thư mục</span><input id="search-files" type="search" placeholder="Tìm theo tên tệp hoặc thư mục…" autocomplete="off"></label><label class="visually-hidden" for="sort-files">Sắp xếp tệp</label><select id="sort-files"><option value="newest">Mới nhất trước</option><option value="name">Tên: A → Z</option><option value="largest">Dung lượng lớn nhất</option></select></div>
       <div class="list-heading" aria-hidden="true"><span>Tên tệp</span><span>Dung lượng</span><span class="date-heading">Ngày tải lên</span><span>Thao tác</span></div>
@@ -104,6 +112,12 @@ export const webuiHandler = async (c: Context<AppEnv>) => {
   </main>
   <template id="file-template">${fileRow({ name: '', size: 0, uploaded: '1970-01-01T00:00:00.000Z' })}</template>
   <dialog id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description"><div class="dialog-icon">${deleteIcon}</div><h2 id="delete-title">Xóa tệp này?</h2><p id="delete-description">Tệp sẽ được xóa khỏi kho lưu trữ. Thao tác này không thể hoàn tác.</p><strong id="delete-name" class="delete-name"></strong><div class="dialog-actions"><button type="button" class="btn" id="cancel-delete" autofocus>Giữ lại</button><button type="button" class="btn btn-remove" id="confirm-delete">Xóa tệp</button></div></dialog>
+  <dialog id="upload-dialog" aria-labelledby="upload-title"><h2 id="upload-title">Tải tệp lên thư viện</h2><p>Chọn một hoặc nhiều tệp. Tệp trùng đường dẫn sẽ giữ bản cũ trong lịch sử.</p><label class="field">Thư mục dưới library/<input id="upload-folder" value="" placeholder="Ví dụ: Tiên Hiệp"></label><label class="file-picker" id="upload-drop-zone"><span>Chọn hoặc thả tệp vào đây</span><small>Hỗ trợ nhiều tệp, tối đa 100 MB mỗi tệp</small><input id="upload-files" type="file" multiple></label><div id="upload-selection" class="dialog-note">Chưa chọn tệp.</div><div class="upload-progress" hidden><div id="upload-progress-bar"></div></div><div id="upload-status" class="dialog-note" role="status"></div><div class="dialog-actions"><button type="button" class="btn" id="close-upload">Đóng</button><button type="button" class="btn btn-primary" id="start-upload">Tải lên</button></div></dialog>
+  <dialog id="share-dialog" class="wide-dialog" aria-labelledby="share-title"><h2 id="share-title">Chia sẻ WebDAV chỉ đọc</h2><p>Người nhận có thể duyệt và tải tệp bằng vBook, nhưng không thể upload hoặc xóa. URL tạo tại đây chỉ dùng cho kết nối WebDAV.</p><form id="share-form"><label class="field">Tên gợi nhớ<input name="label" required maxlength="80" placeholder="Ví dụ: Gia đình"></label><label class="field">Thư mục chia sẻ<input name="prefix" required value="library/" aria-describedby="share-prefix-help"></label><small id="share-prefix-help" class="dialog-note">Chỉ cho phép thư mục nằm trong library/.</small><label class="field">Hết hạn (không bắt buộc)<input name="expires" type="datetime-local"></label><div class="dialog-actions"><button type="submit" class="btn btn-primary">Tạo kết nối</button></div></form><h3>Kết nối đã tạo</h3><div id="share-list" class="share-list" aria-live="polite">Đang tải…</div><div class="dialog-actions"><button type="button" class="btn" id="close-shares">Đóng</button></div></dialog>
+  <dialog id="connection-dialog" aria-labelledby="connection-title"><h2 id="connection-title">Thông tin WebDAV</h2><p>Mật khẩu chỉ hiển thị lần này. Hãy lưu trước khi đóng và chỉ nhập kết nối này vào mục WebDAV.</p><label class="field">URL WebDAV<input id="connection-url" readonly></label><label class="field">Username<input id="connection-user" readonly></label><label class="field">Password<input id="connection-password" readonly></label><div class="dialog-actions"><button type="button" class="btn" id="copy-connection">Sao chép</button><button type="button" class="btn btn-primary" id="close-connection">Đã lưu</button></div></dialog>
+  <dialog id="drive-dialog" class="wide-dialog" aria-labelledby="drive-title"><h2 id="drive-title">Google Drive qua WebDAV</h2><p>Liên kết một thư mục Google Drive để duyệt và tải tệp qua kết nối WebDAV chỉ đọc. Thư mục Drive không dùng dung lượng R2.</p><form id="drive-form"><label class="field">Link thư mục Google Drive<input id="drive-folder-url" name="url" type="url" required maxlength="2048" placeholder="https://drive.google.com/drive/folders/…"></label><small class="dialog-note">Trên Google Drive, đặt quyền thư mục thành “Bất kỳ ai có đường liên kết” và quyền “Người xem”.</small><p id="drive-status" class="dialog-note" role="status">Đang kiểm tra cấu hình…</p><div id="drive-connection" hidden><label class="field">URL WebDAV chỉ đọc<input id="drive-webdav-url" readonly></label><p class="dialog-note">Dùng username và password tài khoản hiện tại khi thêm URL này vào VBook hoặc Legado.</p></div><div class="dialog-actions split-actions"><button type="button" class="btn btn-danger" id="disconnect-drive" hidden>Ngắt liên kết</button><span><button type="button" class="btn" id="close-drive">Đóng</button> <button type="submit" class="btn btn-primary">Liên kết</button></span></div></form></dialog>
+  <dialog id="metadata-dialog" class="wide-dialog" aria-labelledby="metadata-title"><form id="metadata-form"><h2 id="metadata-title">Thông tin truyện</h2><p id="metadata-source" class="dialog-note"></p><div class="metadata-editor"><div class="cover-editor"><div id="metadata-cover-preview" class="cover-preview"><span>Chưa có bìa</span></div><small class="dialog-note">Bìa tải trực tiếp từ URL HTTPS.</small></div><div><label class="field">Tên hiển thị<input name="title" maxlength="240"></label><label class="field">Tác giả<input name="author" maxlength="240"></label><div class="metadata-pair"><label class="field">Ngôn ngữ<input name="language" list="metadata-languages" maxlength="35" placeholder="vi, en, zh-Hans…"></label><label class="field">Thể loại<input name="category" maxlength="120"></label></div><label class="field">Mô tả<textarea name="description" maxlength="5000" rows="4"></textarea></label><label class="field">URL bìa HTTPS<input name="coverUrl" type="url" maxlength="2048" placeholder="https://…"></label></div></div><p id="metadata-error" class="metadata-error" role="alert"></p><div class="dialog-actions split-actions"><button type="button" class="btn btn-danger" id="reset-metadata">Khôi phục dữ liệu gốc</button><span><button type="button" class="btn" id="close-metadata">Đóng</button> <button type="submit" class="btn btn-primary">Lưu thông tin</button></span></div></form></dialog>
+  <datalist id="metadata-languages"><option value="vi">Tiếng Việt</option><option value="en">English</option><option value="fr">Français</option><option value="zh-Hans">中文</option><option value="ja">日本語</option><option value="ko">한국어</option></datalist>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toast-icon" aria-hidden="true"></span><p id="toast-message"></p><button type="button" id="dismiss-toast" aria-label="Đóng thông báo"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
   <script>${raw(driveScript)}</script>
 </body></html>`);

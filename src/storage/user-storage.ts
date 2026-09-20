@@ -1,10 +1,12 @@
-import type { Env } from '../types';
-import { validUsername } from '../utils/path';
+import type { BookMetadata, BookMetadataRecord, Env, PublicWebDavShare, WebDavShare } from '../types';
+import { normalizeSharePrefix, validUsername } from '../utils/path';
 
 const MIB = 1024 * 1024;
 const MAX_UPLOAD = 100 * 1000 * 1000;
 const RETRY_MS = 30_000;
 const DELETE_PAGES = 20;
+const SHARE_ID = /^[A-Za-z0-9_-]{20,64}$/;
+const MAX_SHARES = 100;
 
 /** One instance per user: serialize R2 mutations and the durable usage counter. */
 export class UserStorage {
@@ -56,9 +58,16 @@ export class UserStorage {
       await this.state.storage.put('disabled', false);
       return new Response(null, { status: 204 });
     }
+    if (action === '/suspend') {
+      await this.state.storage.put('disabled', true);
+      return new Response(null, { status: 204 });
+    }
     if (action !== '/retire' && await this.state.storage.get<boolean>('disabled')) {
       return new Response('Account storage is disabled', { status: 403 });
     }
+
+    if (action.startsWith('/share-')) return this.handleShare(action, request);
+    if (action.startsWith('/metadata-')) return this.handleMetadata(action, request, username);
 
     let key: string;
     try { key = decodeURIComponent(request.headers.get('X-Storage-Key') || ''); }
@@ -66,7 +75,11 @@ export class UserStorage {
     if (!key.startsWith(`${username}/`)) return new Response('Forbidden', { status: 403 });
 
     if (action === '/delete' || action === '/retire') {
-      if (action === '/retire') await this.state.storage.put('disabled', true);
+      if (action === '/retire') {
+        await this.state.storage.put('disabled', true);
+        const shares = await this.state.storage.list<WebDavShare>({ prefix: 'share:' });
+        if (shares.size) await this.state.storage.delete([...shares.keys()]);
+      }
       // Persist the job and its retry alarm before touching R2. DELETE is idempotent.
       await this.state.storage.put({ delete: key, dirty: true });
       await this.state.storage.setAlarm(Date.now() + RETRY_MS);
@@ -176,6 +189,65 @@ export class UserStorage {
     }
   }
 
+  private async handleShare(action: string, request: Request): Promise<Response> {
+    const id = request.headers.get('X-Share-Id') || '';
+    if (action === '/share-list') {
+      const records = await this.state.storage.list<WebDavShare>({ prefix: 'share:' });
+      const shares: PublicWebDavShare[] = [...records.values()]
+        .map(({ secret_hash: _secret, ...share }) => share.expires_at !== undefined && share.expires_at <= Date.now() ? { ...share, status: 'revoked' as const } : share)
+        .sort((a, b) => b.created_at - a.created_at);
+      return Response.json({ shares });
+    }
+    if (!SHARE_ID.test(id)) return new Response('Invalid share', { status: 400 });
+    const storageKey = `share:${id}`;
+
+    if (action === '/share-auth') {
+      const share = await this.state.storage.get<WebDavShare>(storageKey);
+      const supplied = request.headers.get('X-Share-Secret-Hash') || '';
+      if (!share || share.status !== 'active' || !constantTimeEqual(share.secret_hash, supplied) || (share.expires_at !== undefined && share.expires_at <= Date.now())) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      const { secret_hash: _secret, ...publicShare } = share;
+      return Response.json(publicShare);
+    }
+
+    if (action === '/share-create') {
+      if (await this.state.storage.get<WebDavShare>(storageKey)) return new Response('Share already exists', { status: 409 });
+      const records = await this.state.storage.list<WebDavShare>({ prefix: 'share:' });
+      if (records.size >= MAX_SHARES) return new Response('Share limit reached', { status: 409 });
+      let prefix: string | null = null;
+      let label = '';
+      try {
+        prefix = normalizeSharePrefix(decodeURIComponent(request.headers.get('X-Share-Prefix') || ''));
+        label = decodeURIComponent(request.headers.get('X-Share-Label') || '').trim();
+      } catch { return new Response('Invalid share configuration', { status: 400 }); }
+      const secretHash = request.headers.get('X-Share-Secret-Hash') || '';
+      const expires = request.headers.get('X-Share-Expires');
+      const expiresAt = expires ? Number(expires) : undefined;
+      if (!prefix || !label || label.length > 80 || !/^[A-Za-z0-9_-]{43}$/.test(secretHash) || (expiresAt !== undefined && (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()))) {
+        return new Response('Invalid share configuration', { status: 400 });
+      }
+      const share: WebDavShare = { id, label, prefix, secret_hash: secretHash, created_at: Date.now(), ...(expiresAt ? { expires_at: expiresAt } : {}), status: 'active' };
+      await this.state.storage.put(storageKey, share);
+      const { secret_hash: _secret, ...publicShare } = share;
+      return Response.json(publicShare, { status: 201 });
+    }
+
+    const share = await this.state.storage.get<WebDavShare>(storageKey);
+    if (!share) return new Response('Not Found', { status: 404 });
+    if (action === '/share-rotate') {
+      const secretHash = request.headers.get('X-Share-Secret-Hash') || '';
+      if (!/^[A-Za-z0-9_-]{43}$/.test(secretHash)) return new Response('Invalid secret', { status: 400 });
+      await this.state.storage.put(storageKey, { ...share, secret_hash: secretHash, status: 'active' });
+      return new Response(null, { status: 204 });
+    }
+    if (action === '/share-revoke') {
+      await this.state.storage.put(storageKey, { ...share, status: 'revoked' });
+      return new Response(null, { status: 204 });
+    }
+    return new Response('Not Found', { status: 404 });
+  }
+
   private busy(): Response {
     return new Response('Deletion in progress; retry shortly', { status: 503, headers: { 'Retry-After': '30' } });
   }
@@ -190,6 +262,7 @@ export class UserStorage {
       const listed = await this.env.STORAGE_R2.list({ prefix, limit: 1000 });
       if (listed.objects.length) await this.env.STORAGE_R2.delete(listed.objects.map(object => object.key));
       if (!listed.truncated) {
+        await this.deleteMetadataForKey(key);
         await this.state.storage.delete('delete');
         await this.state.storage.deleteAlarm();
         // Keep dirty=true: next usage query reconciles R2, including any partial retry.
@@ -198,6 +271,42 @@ export class UserStorage {
     }
     await this.state.storage.setAlarm(Date.now() + RETRY_MS);
     return false;
+  }
+
+  private async handleMetadata(action: string, request: Request, username: string): Promise<Response> {
+    if (action === '/metadata-list') {
+      const records = await this.state.storage.list<BookMetadataRecord>({ prefix: 'metadata:' });
+      return Response.json({ records: [...records.values()].sort((a, b) => b.updated_at - a.updated_at) });
+    }
+    let body: unknown;
+    try { body = await request.json(); } catch { return new Response('Invalid metadata', { status: 400 }); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return new Response('Invalid metadata', { status: 400 });
+    const input = body as Record<string, unknown>;
+    const path = typeof input.path === 'string' ? input.path : '';
+    if (!path.startsWith(`${username}/library/`) || path.endsWith('/') || path.length > 1024) return new Response('Invalid metadata path', { status: 400 });
+    const storageKey = `metadata:${path.substring(username.length + 1)}`;
+    if (action === '/metadata-delete') {
+      await this.state.storage.delete(storageKey);
+      return new Response(null, { status: 204 });
+    }
+    if (action !== '/metadata-put') return new Response('Not Found', { status: 404 });
+    const metadata = validateBookMetadata(input.metadata);
+    if (metadata === null) return new Response('Invalid metadata', { status: 400 });
+    const record: BookMetadataRecord = { path, metadata, updated_at: Date.now() };
+    await this.state.storage.put(storageKey, record);
+    return Response.json(record);
+  }
+
+  private async deleteMetadataForKey(key: string): Promise<void> {
+    // Lightweight recovery fixtures implement only the storage methods involved in deletion.
+    if (typeof this.state.storage.list !== 'function') return;
+    const records = await this.state.storage.list<BookMetadataRecord>({ prefix: 'metadata:' });
+    const prefix = key.endsWith('/') ? key : `${key}/`;
+    const remove: string[] = [];
+    for (const [storageKey, record] of records) {
+      if (record.path === key || record.path.startsWith(prefix)) remove.push(storageKey);
+    }
+    if (remove.length) await this.state.storage.delete(remove);
   }
 
   alarm(): Promise<void> {
@@ -209,4 +318,38 @@ export class UserStorage {
       }
     });
   }
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  let diff = a.length ^ b.length;
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    diff |= (a.charCodeAt(index) || 0) ^ (b.charCodeAt(index) || 0);
+  }
+  return diff === 0;
+}
+
+function validateBookMetadata(value: unknown): BookMetadata | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  const limits: Record<keyof BookMetadata, number> = { title: 240, author: 240, language: 35, category: 120, description: 5000, coverUrl: 2048 };
+  const result: BookMetadata = {};
+  for (const field of Object.keys(limits) as Array<keyof BookMetadata>) {
+    const raw = input[field];
+    if (raw === undefined || raw === '') continue;
+    if (typeof raw !== 'string') return null;
+    const text = raw.trim();
+    if (!text) continue;
+    if (text.length > limits[field] || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) return null;
+    if (field === 'language' && !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(text)) return null;
+    if (field === 'coverUrl') {
+      try {
+        const url = new URL(text);
+        if (url.protocol !== 'https:' || url.username || url.password) return null;
+        result.coverUrl = url.href;
+      } catch { return null; }
+    } else {
+      result[field] = text;
+    }
+  }
+  return result;
 }

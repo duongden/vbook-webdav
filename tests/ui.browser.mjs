@@ -90,6 +90,105 @@ test('desktop: search, sort, confirmation and empty state; 204 updates without n
   assert.equal(navigations, 0);
 });
 
+test('browser upload stores a library file through the quota-aware PUT path', { timeout: 20000 }, async t => {
+  const { page, username } = await openDrive(t, { files: [] });
+  await page.getByRole('button', { name: 'Tải tệp lên', exact: true }).click();
+  await page.getByRole('dialog').screenshot({ path: '/tmp/vbook-upload-dialog.png' });
+  await page.getByLabel('Thư mục dưới library/').fill('Tiên Hiệp');
+  await page.locator('#upload-files').setInputFiles({ name: 'Sách mới.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('epub-data') });
+  await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
+  await waitText(page, 'upload-status', 'Đã tải lên 1 tệp');
+  await waitText(page, 'toast-message', 'Đã tải tệp lên thư viện');
+  assert.equal(await (await bucket.get(`${username}/library/Tiên Hiệp/Sách mới.epub`)).text(), 'epub-data');
+  assert.equal(await page.locator('[data-file][data-name="library/Tiên Hiệp/Sách mới.epub"]').count(), 1);
+});
+
+test('drag and drop selects and uploads multiple library files', { timeout: 20000 }, async t => {
+  const { page, username } = await openDrive(t, { files: [] });
+  await page.getByRole('button', { name: 'Tải tệp lên', exact: true }).click();
+  await page.getByLabel('Thư mục dưới library/').fill('Kéo thả');
+  await page.locator('#upload-drop-zone').evaluate(zone => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['first'], 'Một.epub', { type: 'application/epub+zip' }));
+    transfer.items.add(new File(['second'], 'Hai.pdf', { type: 'application/pdf' }));
+    zone.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    zone.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await waitText(page, 'upload-selection', '2 tệp');
+  await waitText(page, 'upload-status', 'Đã nhận 2 tệp');
+  await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
+  await waitText(page, 'upload-status', 'Đã tải lên 2 tệp');
+  assert.equal(await (await bucket.get(`${username}/library/Kéo thả/Một.epub`)).text(), 'first');
+  assert.equal(await (await bucket.get(`${username}/library/Kéo thả/Hai.pdf`)).text(), 'second');
+});
+
+test('owner creates and revokes a read-only WebDAV connection from the UI', { timeout: 20000 }, async t => {
+  const { page } = await openDrive(t, { files: [{ name: 'library/book.epub', size: 20 }] });
+  await page.getByRole('button', { name: 'Chia sẻ', exact: true }).click();
+  await page.getByLabel('Tên gợi nhớ').fill('Máy đọc sách');
+  await page.getByRole('button', { name: 'Tạo kết nối', exact: true }).click();
+  const connection = page.locator('#connection-dialog');
+  await connection.waitFor();
+  await connection.locator('input').evaluateAll(inputs => inputs.forEach(input => { input.blur(); input.scrollLeft = 0; }));
+  await connection.screenshot({ path: '/tmp/vbook-share-connection.png' });
+  await page.getByText('chỉ nhập kết nối này vào mục WebDAV', { exact: false }).waitFor();
+  const url = await page.getByLabel('URL WebDAV', { exact: true }).inputValue();
+  const sharedUser = await page.getByLabel('Username', { exact: true }).inputValue();
+  const sharedPassword = await page.getByLabel('Password', { exact: true }).inputValue();
+  const authorization = 'Basic ' + Buffer.from(`${sharedUser}:${sharedPassword}`).toString('base64');
+  assert.equal((await mf.dispatchFetch(url, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } })).status, 207);
+  await page.getByRole('button', { name: 'Đã lưu', exact: true }).click();
+  await page.getByRole('button', { name: 'Chia sẻ', exact: true }).click();
+  await page.getByText('Máy đọc sách', { exact: true }).waitFor();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Thu hồi', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã thu hồi');
+  assert.equal((await mf.dispatchFetch(url, { method: 'PROPFIND', headers: { Authorization: authorization } })).status, 401);
+});
+
+test('Google Drive dialog explains the independent read-only WebDAV connection', async t => {
+  const { page } = await openDrive(t, { files: [] });
+  await page.route('**/api/drive', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ configured: true, available: true, url: 'https://library.example/drive-webdav/' }),
+  }));
+  await page.getByRole('button', { name: 'Liên kết Google Drive', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Google Drive qua WebDAV' });
+  await dialog.getByText('Đã liên kết một thư mục Google Drive.').waitFor();
+  assert.equal(await page.getByLabel('URL WebDAV chỉ đọc').inputValue(), 'https://library.example/drive-webdav/');
+  await dialog.screenshot({ path: '/tmp/vbook-drive-dialog.png' });
+});
+
+test('user edits, reloads and restores book metadata', { timeout: 20000 }, async t => {
+  const { page } = await openDrive(t, { files: [{ name: 'library/book.epub', size: 20 }] });
+  await page.getByRole('button', { name: 'Sửa thông tin book.epub', exact: true }).click();
+  await page.getByLabel('Tên hiển thị').fill('Truyện thử nghiệm');
+  await page.getByLabel('Tác giả').fill('Tác giả mẫu');
+  await page.getByLabel('Ngôn ngữ').fill('vi');
+  await page.getByLabel('Thể loại').fill('Tiên hiệp');
+  await page.getByLabel('Mô tả').fill('Mô tả dùng để kiểm tra tìm kiếm.');
+  await page.locator('#metadata-dialog').screenshot({ path: '/tmp/vbook-metadata-dialog.png' });
+  await page.getByRole('button', { name: 'Lưu thông tin', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã lưu thông tin truyện');
+  assert.equal(await page.locator('.file-name').textContent(), 'Truyện thử nghiệm');
+  assert.equal(await page.locator('.file-author').textContent(), 'Tác giả mẫu');
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click();
+  await waitText(page, 'sync-note', 'Vừa cập nhật');
+  assert.equal(await page.locator('.file-name').textContent(), 'Truyện thử nghiệm');
+  await page.getByRole('searchbox').fill('tac gia mau');
+  assert.equal(await page.locator('[data-file]:visible').count(), 1);
+  await page.getByRole('searchbox').fill('');
+
+  await page.getByRole('button', { name: 'Sửa thông tin book.epub', exact: true }).click();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Khôi phục dữ liệu gốc', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã khôi phục');
+  assert.equal(await page.locator('.file-name').textContent(), 'book.epub');
+  assert.equal(await page.locator('.file-author').isHidden(), true);
+});
+
 for (const failure of ['http500', 'network']) {
   test('deleted file is reported as success after ' + failure + ' response', { timeout: 20000 }, async t => {
     const { page, username } = await openDrive(t, { files: [{ name: 'a#b & c.json', size: 20 }] });
@@ -176,8 +275,14 @@ test('delete button is disabled while the request is in flight', { timeout: 2000
 
 test('mobile layout fits, keyboard can cancel, and names remain escaped on refresh', { timeout: 20000 }, async t => {
   const filename = '<img src=x onerror=alert(1)> & "quote".json';
-  const { page } = await openDrive(t, { width: 390, height: 844, files: [...defaultFiles, { name: filename, size: 12 }] });
+  const { page } = await openDrive(t, { width: 390, height: 844, files: [...defaultFiles, { name: filename, size: 12 }, { name: 'library/mobile.epub', size: 24 }] });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  const actionBoxes = await page.locator('[data-name="library/mobile.epub"] .file-action:visible').evaluateAll(nodes => nodes.map(node => {
+    const box = node.getBoundingClientRect();
+    return { width: box.width, height: box.height, text: node.textContent.trim(), label: node.getAttribute('aria-label') };
+  }));
+  assert.equal(actionBoxes.length, 3);
+  assert.ok(actionBoxes.every(box => box.width === 42 && box.height === 42 && box.text === '' && box.label));
   assert.equal(await page.locator('.file-name img').count(), 0);
   await page.getByRole('searchbox').fill('quote');
   await page.getByRole('button', { name: 'Làm mới', exact: true }).click();
@@ -186,12 +291,12 @@ test('mobile layout fits, keyboard can cancel, and names remain escaped on refre
   assert.equal(await page.locator('.file-name img').count(), 0);
   assert.equal(await page.locator('[data-file]:visible .file-name').textContent(), filename);
   await page.getByRole('searchbox').fill('');
-  await page.screenshot({ path: '/tmp/vbook-drive-mobile.png', fullPage: true });
+  await page.screenshot({ path: '/tmp/vbook-drive-mobile-actions.png', fullPage: true });
   await page.getByRole('button', { name: 'Xóa Ghi chú & dấu trang.txt', exact: true }).click();
   await page.screenshot({ path: '/tmp/vbook-drive-delete-dialog.png', fullPage: true });
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').isVisible(), false);
-  assert.equal(await page.locator('[data-file]').count(), 5);
+  assert.equal(await page.locator('[data-file]').count(), 6);
 });
 
 test('unavailable verification never reports success or removes a file', { timeout: 20000 }, async t => {
@@ -208,7 +313,7 @@ test('unavailable verification never reports success or removes a file', { timeo
 });
 
 test('clean mobile preview has a visible brand and no horizontal overflow', async t => {
-  const { page } = await openDrive(t, { width: 390, height: 844 });
+  const { page } = await openDrive(t, { width: 390, height: 844, files: [...defaultFiles, { name: 'library/Sách mẫu.epub', size: 24_000 }] });
   assert.equal(await page.locator('.brand').innerText(), 'VBook');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: '/tmp/vbook-drive-mobile.png', fullPage: true });
@@ -281,6 +386,7 @@ test('many backups paginate and filter history while preserving search and manua
   await page.getByRole('button', { name: 'Lịch sử', exact: true }).click();
   assert.equal(await page.locator('[data-file]:visible').count(), 20);
   assert.equal(await page.locator('#page-label').textContent(), '1 / 2');
+  await page.screenshot({ path: '/tmp/vbook-history.png' });
   await page.getByRole('searchbox').fill('backup-44');
   assert.equal(await page.locator('[data-file]:visible').count(), 1);
   await confirmDelete(page, 'backup-44.zip');

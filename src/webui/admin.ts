@@ -7,14 +7,20 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { hashPassword, generateSalt } from '../utils/crypto';
 import { adminStyles } from './admin-styles';
 import { encryptPassword, decryptPassword } from '../utils/password-vault';
+import { bodyLimit } from 'hono/body-limit';
 
 export const adminApp = new Hono<AppEnv>();
+
+adminApp.use('*', bodyLimit({ maxSize: 32 * 1024, onError: c => c.text('Payload Too Large', 413) }));
 
 adminApp.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   c.header('X-Content-Type-Options', 'nosniff');
   if (typeof c.env.ADMIN_PIN !== 'string' || !c.env.ADMIN_PIN.trim()) {
     return c.text('Admin is not configured', 503);
+  }
+  if (c.env.ADMIN_SESSION_SECRET !== undefined && c.env.ADMIN_SESSION_SECRET.length < 32) {
+    return c.text('Admin session secret is invalid', 503);
   }
   await next();
 });
@@ -45,6 +51,10 @@ async function signSession(payload: string, pin: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(signature)));
 }
 
+function sessionSecret(c: Context<AppEnv>): string {
+  return c.env.ADMIN_SESSION_SECRET || c.env.PASSWORD_VAULT_KEY || c.env.ADMIN_PIN;
+}
+
 async function generateSessionToken(pin: string): Promise<string> {
   const payload = `${Date.now() + SESSION_SECONDS * 1000}:${generateCsrfToken()}`;
   return `${payload}:${await signSession(payload, pin)}`;
@@ -60,7 +70,7 @@ async function verifySessionToken(token: string, pin: string): Promise<boolean> 
 
 const authMiddleware = async (c: Context<AppEnv>, next: Next) => {
   const token = getCookie(c, 'admin_session');
-  if (!token || !await verifySessionToken(token, c.env.ADMIN_PIN)) {
+  if (!token || !await verifySessionToken(token, sessionSecret(c))) {
     return c.redirect('/admin/login');
   }
   // Ensure CSRF token cookie is always set for authenticated sessions
@@ -121,7 +131,7 @@ adminApp.get('/login', (c) => {
 
 adminApp.post('/login', async (c) => {
   // SECURITY (VULN-03): Rate limiting — lock after 5 failed attempts for 15 min
-  const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+  const ip = c.req.header('CF-Connecting-IP') || 'local';
   const rateLimitKey = `ratelimit:admin:${ip}`;
   const MAX_ATTEMPTS = 5;
   const LOCKOUT_SECONDS = 15 * 60;
@@ -148,10 +158,10 @@ adminApp.post('/login', async (c) => {
   const body = await c.req.parseBody();
   const pin = typeof body['pin'] === 'string' ? body['pin'] : '';
 
-  if (pin === c.env.ADMIN_PIN) {
+  if (timingSafeEqual(pin, c.env.ADMIN_PIN)) {
     c.executionCtx.waitUntil(c.env.USER_KV.delete(rateLimitKey));
     setCookie(c, 'admin_session', '', { path: '/', maxAge: 0, httpOnly: true, secure: true, sameSite: 'Strict' });
-    const sessionToken = await generateSessionToken(pin);
+    const sessionToken = await generateSessionToken(sessionSecret(c));
     setCookie(c, 'admin_session', sessionToken, {
       path: '/admin', httpOnly: true, secure: true, sameSite: 'Strict', maxAge: SESSION_SECONDS
     });
@@ -258,7 +268,7 @@ adminApp.get('/', async (c) => {
                     Password
                     <span id="pwd-hint" class="text-slate-400 font-normal ml-1">(required)</span>
                   </label>
-                  <input id="f-password" type="password" name="password"
+                  <input id="f-password" type="password" name="password" minlength="12" maxlength="256"
                     class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm"
                     placeholder="Enter password">
                 </div>
@@ -536,6 +546,9 @@ adminApp.post('/user', async (c) => {
   if (mode === 'create' && !password) {
     return c.redirect(`/admin?err=${encodeURIComponent('Password is required for new users.')}`);
   }
+  if (password && (password.length < 12 || password.length > 256)) {
+    return c.redirect(`/admin?err=${encodeURIComponent('Password must contain 12 to 256 characters.')}`);
+  }
 
   let passwordHash = existing?.password_hash ?? '';
   let salt         = existing?.salt;
@@ -560,6 +573,7 @@ adminApp.post('/user', async (c) => {
     quota_mb: quota,
     max_file_size_mb: maxSize,
     status: mode === 'create' ? 'active' : status,
+    ...(existing?.drive_folder_id ? { drive_folder_id: existing.drive_folder_id } : {}),
   };
 
   if (mode === 'create') {
@@ -603,6 +617,8 @@ adminApp.post('/suspend', async (c) => {
   const config = JSON.parse(existingStr) as UserConfig;
   config.status = action === 'suspend' ? 'suspended' : 'active';
 
+  const storage = await storageRequest(c.env, username, config.status === 'suspended' ? 'suspend' : 'activate');
+  if (!storage.ok) return c.redirect(`/admin?err=${encodeURIComponent('Could not update storage access')}`);
   await c.env.USER_KV.put(`user:${username}`, JSON.stringify(config));
   const verb = config.status === 'suspended' ? 'suspended' : 'activated';
   return c.redirect(`/admin?ok=${encodeURIComponent(`User ${username} ${verb}`)}`);

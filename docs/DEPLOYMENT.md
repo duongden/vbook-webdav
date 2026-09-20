@@ -29,9 +29,11 @@ npx wrangler login
 npm run check
 npx wrangler deploy --keep-vars --minify
 npx wrangler secret put ADMIN_PIN
+npx wrangler secret put ADMIN_SESSION_SECRET
+npx wrangler secret put GOOGLE_API_KEY
 ```
 
-Lệnh secret yêu cầu nhập giá trị riêng; không viết giá trị vào lệnh để tránh lưu trong lịch sử terminal. Sau khi đặt `ADMIN_PIN`, mở `/admin` để tạo tài khoản đầu tiên. Nếu muốn xem lại mật khẩu, thêm `PASSWORD_VAULT_KEY` theo hướng dẫn phía trên.
+Lệnh secret yêu cầu nhập giá trị riêng; không viết giá trị vào lệnh để tránh lưu trong lịch sử terminal. `ADMIN_SESSION_SECRET` nên là chuỗi ngẫu nhiên ít nhất 32 byte, có thể tạo bằng `openssl rand -hex 32`. `GOOGLE_API_KEY` chỉ bắt buộc khi muốn dùng WebDAV chỉ đọc với thư mục Google Drive. Sau khi đặt secret, mở `/admin` để tạo tài khoản đầu tiên. Nếu muốn xem lại mật khẩu, thêm `PASSWORD_VAULT_KEY` theo hướng dẫn phía dưới.
 
 ## Deploy qua GitHub
 
@@ -66,9 +68,11 @@ Xem **Bindings** của Worker để xác định đúng KV và R2. Khi cập nh�
 | Secret runtime | Bắt buộc? |
 | --- | --- |
 | `ADMIN_PIN` | Có, để sử dụng admin |
+| `ADMIN_SESSION_SECRET` | Khuyến nghị mạnh, dùng để ký phiên admin độc lập với PIN |
 | `PASSWORD_VAULT_KEY` | Chỉ khi muốn xem lại mật khẩu |
+| `GOOGLE_API_KEY` | Chỉ khi bật thư viện WebDAV chỉ đọc từ Google Drive |
 
-Hai secret này nằm trong Worker → **Settings → Variables and Secrets**, không phải biến build. Script build chỉ tạo cấu hình tạm từ ba biến `CF_*`; không đưa khóa hoặc mật khẩu vào source.
+Các secret này nằm trong Worker → **Settings → Variables and Secrets**, không phải biến build. Script build chỉ tạo cấu hình tạm từ ba biến `CF_*`; không đưa khóa hoặc mật khẩu vào source.
 
 ### 4. Lưu và chạy build
 
@@ -98,7 +102,18 @@ npx wrangler deploy --keep-vars --minify
 
 Trước khi deploy, kiểm tra `name` trong cấu hình trùng Worker của URL đang dùng. Giữ nguyên R2/KV, binding Durable Object và lịch sử migration.
 
-Nếu secret đã đặt trên Dashboard, không khai báo lại `ADMIN_PIN` hoặc `PASSWORD_VAULT_KEY` trong `vars` local. `--keep-vars` giữ biến Dashboard, nhưng giá trị khai báo trong cấu hình vẫn có thể ghi đè biến cùng tên.
+Nếu secret đã đặt trên Dashboard, không khai báo lại `ADMIN_PIN`, `ADMIN_SESSION_SECRET`, `PASSWORD_VAULT_KEY` hoặc `GOOGLE_API_KEY` trong `vars` local. `--keep-vars` giữ biến Dashboard, nhưng giá trị khai báo trong cấu hình vẫn có thể ghi đè biến cùng tên. Khi chạy local, đặt các giá trị này trong `.dev.vars`, không đặt trong `wrangler.jsonc`.
+
+### Google Drive qua WebDAV
+
+1. Trong Google Cloud Console, bật **Google Drive API v3** cho project.
+2. Tạo API key và giới hạn key chỉ được gọi Google Drive API.
+3. Thêm key dưới dạng Worker secret `GOOGLE_API_KEY`.
+4. Người dùng đặt thư mục Drive ở quyền **Bất kỳ ai có đường liên kết – Người xem**, sau đó liên kết từ giao diện web.
+
+Endpoint `/drive-webdav/` dùng Basic Auth của tài khoản và chỉ hỗ trợ `OPTIONS`, `GET`, `HEAD`, `PROPFIND`. Folder ID nằm trong record tài khoản KV và không được đưa vào URL WebDAV. Request tải file hợp lệ trả redirect đến Google Drive; dữ liệu file không đi qua R2.
+
+API key không cấp quyền ghi. `PUT`, `DELETE`, `MKCOL` và các thao tác đổi tên luôn bị từ chối. Giới hạn key theo API giúp giảm tác động nếu secret bị lộ; vẫn nên đặt quota và cảnh báo sử dụng trong Google Cloud Console.
 
 Sau deploy, Wrangler in URL và Version ID. Mở web, tải lại trang và kiểm tra các thao tác cần dùng.
 
@@ -124,9 +139,15 @@ Mật khẩu cũ chỉ có hash không thể đọc ngược. Khi cấu hình kh
 ## Phạm vi và kiểm thử
 
 - Hỗ trợ `OPTIONS`, `GET`, `HEAD`, `PUT`, `DELETE`, `MKCOL`, `PROPFIND` Depth 0/1; chưa hỗ trợ `MOVE`, `COPY`, `LOCK`, `UNLOCK` hay đầy đủ mọi yêu cầu WebDAV.
+- Endpoint `/shared/<owner>/<shareId>/` dùng Basic Auth riêng và chỉ cho phép `OPTIONS`, `GET`, `HEAD`, `PROPFIND`. Share record nằm trong Durable Object hiện có nên không cần binding hoặc migration mới.
+- Endpoint `/drive-webdav/` dùng Basic Auth tài khoản, đọc cây thư mục qua Google Drive API và tải trực tiếp từ Drive. Kết nối này không dùng quota R2 và không có quyền ghi.
+- Upload từ trình duyệt đi qua cùng luồng PUT và quota Durable Object như WebDAV client; file được đặt dưới `library/`.
+- Metadata chỉnh sửa của tệp `library/` nằm trong Durable Object của owner, không sửa object R2. Xóa file/thư mục sẽ dọn metadata liên quan. URL bìa HTTPS được tải trực tiếp bởi trình duyệt nên máy chủ ảnh nhìn thấy kết nối của người dùng.
 - R2 lưu file; KV lưu tài khoản; mỗi user có một SQLite Durable Object tuần tự hóa ghi/xóa và quản lý quota.
 - KV có eventual consistency: đổi mật khẩu/khóa tài khoản có thể mất thời gian để xuất hiện ở mọi vùng.
 - Mật khẩu đăng nhập dùng PBKDF2 1.000 vòng theo cơ chế tương thích cũ, còn yếu trước tấn công offline; bảo vệ quyền truy cập KV và dùng mật khẩu dài, duy nhất.
+- Basic Auth chỉ an toàn khi đi qua HTTPS. Đăng nhập user bị giới hạn theo cặp IP/tài khoản; KV có eventual consistency nên nên kết hợp Cloudflare WAF/rate limiting cho hệ thống public.
+- Nếu bật `PASSWORD_VAULT_KEY`, admin có thể giải mã mật khẩu user. Không bật tính năng này nếu không thật sự cần xem lại mật khẩu.
 - Lịch sử được sao chép trước khi thay file hiện tại. Upload lỗi giữ bản cũ; một lần ngắt tiến trình đột ngột có thể để lại bản lịch sử thừa, được tính lại vào quota.
 - Phân trang UI chạy trên danh sách đã tải về, chưa giảm tổng metadata đọc từ R2. Không chỉnh/xóa trực tiếp R2 ngoài ứng dụng khi quota đã được khởi tạo nếu chưa có bước đối soát.
 - CSS nội bộ dùng theme chung tại `src/webui/theme.ts`; không tải Tailwind CDN.
@@ -141,7 +162,7 @@ Test UI dùng Chrome có sẵn trên macOS; môi trường khác có thể chạ
 
 ## Những gì không được đưa lên repo public
 
-`wrangler.jsonc`, `wrangler.toml`, `.env`, `.dev.vars`, `.wrangler/`, `.local-backups/`, API token, khóa mã hóa và bản backup dữ liệu riêng.
+`wrangler.jsonc`, `wrangler.toml`, `.env`, `.dev.vars`, `.wrangler/`, `.local-backups/`, API token, Google API key, khóa mã hóa và bản backup dữ liệu riêng.
 
 Giữ file mẫu công khai `config/wrangler.example.jsonc` với placeholder. Không cấu hình static assets trỏ vào thư mục gốc hoặc thư mục backup. Không đính kèm cấu hình riêng trong artifact, issue hay ảnh README.
 
