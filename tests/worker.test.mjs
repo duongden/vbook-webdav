@@ -13,11 +13,11 @@ const password = 'mật khẩu:a:b';
 const driveRootId = 'ROOT_FOLDER_12345';
 const config = () => ({
   modules: true, scriptPath, modulesRoot: directory, compatibilityDate: '2026-05-20',
-  bindings: { ADMIN_PIN: pin, PASSWORD_VAULT_KEY: 'ab'.repeat(32), GOOGLE_API_KEY: 'test-drive-key' }, kvNamespaces: ['USER_KV'], r2Buckets: ['STORAGE_R2'],
+  bindings: { ADMIN_PIN: pin, PASSWORD_VAULT_KEY: 'ab'.repeat(32), DRIVE_VAULT_KEY: 'ab'.repeat(32) }, kvNamespaces: ['USER_KV'], r2Buckets: ['STORAGE_R2'],
   durableObjects: { USER_STORAGE: { className: 'UserStorage', useSQLite: true } },
   outboundService: request => {
     const url = new URL(request.url);
-    if (url.origin !== 'https://www.googleapis.com' || url.searchParams.get('key') !== 'test-drive-key') return new Response('blocked', { status: 502 });
+    if (url.origin !== 'https://www.googleapis.com' || !['test-drive-key-user-123456', 'second-drive-key-user-123456'].includes(url.searchParams.get('key'))) return new Response('blocked', { status: 502 });
     if (url.pathname === `/drive/v3/files/${driveRootId}`) return Response.json({ id: driveRootId, name: 'Books', mimeType: 'application/vnd.google-apps.folder' });
     if (url.pathname === '/drive/v3/files') {
       const query = url.searchParams.get('q') || '';
@@ -272,7 +272,7 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
 
   const status = await mf.dispatchFetch('https://test.local/api/drive', { headers: { Authorization: authorization } });
   assert.equal(status.status, 200);
-  assert.deepEqual(await status.json(), { configured: false, available: true, url: root });
+  assert.deepEqual(await status.json(), { configured: false, available: true, hasApiKey: false, url: root });
 
   const invalid = await mf.dispatchFetch('https://test.local/api/drive', {
     method: 'PUT', headers: { Authorization: authorization, Origin: 'https://test.local', 'X-VBook-Action': 'drive', 'Content-Type': 'application/json' },
@@ -286,10 +286,29 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
 
   const actionHeaders = { Authorization: authorization, Origin: 'https://test.local', 'X-VBook-Action': 'drive', 'Content-Type': 'application/json' };
   const connected = await mf.dispatchFetch('https://test.local/api/drive', {
-    method: 'PUT', headers: actionHeaders, body: JSON.stringify({ url: `https://drive.google.com/drive/folders/${driveRootId}` }),
+    method: 'PUT', headers: actionHeaders, body: JSON.stringify({ url: `https://drive.google.com/drive/folders/${driveRootId}`, apiKey: 'test-drive-key-user-123456' }),
   });
   assert.equal(connected.status, 200);
   assert.deepEqual(await connected.json(), { configured: true, url: root });
+
+  const privateConfig = await (await mf.getDurableObjectNamespace('USER_STORAGE')).get((await mf.getDurableObjectNamespace('USER_STORAGE')).idFromName(`user:${name}`)).fetch('https://internal/drive-get', { headers: { 'X-Storage-User': name } });
+  const encrypted = await privateConfig.json();
+  assert.ok(encrypted.encryptedKey.startsWith('v1.'));
+  assert.ok(!JSON.stringify(encrypted).includes('test-drive-key-user-123456'));
+  const publicStatus = await (await mf.dispatchFetch('https://test.local/api/drive', { headers: { Authorization: authorization } })).text();
+  assert.ok(!publicStatus.includes(encrypted.encryptedKey));
+  const other = await user('drive_other');
+  assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 404);
+  const otherAuth = `Basic ${Buffer.from(`${other}:${password}`).toString('base64')}`;
+  const otherHeaders = { ...actionHeaders, Authorization: otherAuth };
+  const ns = await mf.getDurableObjectNamespace('USER_STORAGE');
+  const otherStub = ns.get(ns.idFromName(`user:${other}`));
+  await otherStub.fetch('https://internal/drive-set', { method: 'POST', headers: { 'X-Storage-User': other }, body: JSON.stringify(encrypted) });
+  assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 503, 'ciphertext cannot move to another user');
+  assert.equal((await mf.dispatchFetch('https://test.local/api/drive', { method: 'PUT', headers: otherHeaders, body: JSON.stringify({ url: driveRootId, apiKey: 'second-drive-key-user-123456' }) })).status, 200);
+  assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 207);
+
+  assert.equal((await mf.dispatchFetch('https://test.local/api/drive', { method: 'PUT', headers: actionHeaders, body: JSON.stringify({ url: `https://drive.google.com/drive/folders/${driveRootId}` }) })).status, 200, 'blank key preserves own key');
 
   const propfind = await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
   assert.equal(propfind.status, 207);
@@ -309,6 +328,7 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
 
   assert.equal((await mf.dispatchFetch('https://test.local/api/drive', { method: 'DELETE', headers: actionHeaders })).status, 204);
   assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization } })).status, 404);
+  assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 207, 'disconnecting one user leaves the other connected');
 });
 
 test('read-only WebDAV shares are scoped, revocable and use independent credentials', async () => {
@@ -411,7 +431,7 @@ test('book metadata overrides are validated, tenant-scoped and removed with the 
 });
 
 
-test('admin password vault requires session and CSRF, preserves edits and binds ciphertext to username', async () => {
+test('admin cannot reveal passwords and resetting an account disconnects Drive', async () => {
   const name = await user('vault_user');
   const login = await mf.dispatchFetch('https://test.local/admin/login', { method: 'POST', body: new URLSearchParams({ pin }), redirect: 'manual' });
   const session = login.headers.getSetCookie().find(v => v.startsWith('admin_session=') && !v.includes('Max-Age=0')).split(';')[0];
@@ -422,27 +442,21 @@ test('admin password vault requires session and CSRF, preserves edits and binds 
   const post = (path, body, Cookie = cookie) => mf.dispatchFetch(`https://test.local/admin/${path}`, { method: 'POST', headers: { Cookie }, body: new URLSearchParams(body), redirect: 'manual' });
   assert.equal((await post('password', { username: name, _csrf: csrf }, '')).status, 302);
   assert.equal((await post('password', { username: name })).status, 403);
-  assert.equal((await post('password', { username: name, _csrf: csrf })).status, 409);
+  assert.equal((await post('password', { username: name, _csrf: csrf })).status, 403);
+  const ns = await mf.getDurableObjectNamespace('USER_STORAGE');
+  const stub = ns.get(ns.idFromName(`user:${name}`));
+  await stub.fetch('https://internal/drive-set', { method: 'POST', headers: { 'X-Storage-User': name }, body: JSON.stringify({ folderId: driveRootId, encryptedKey: 'encrypted-test-record' }) });
   const update = pass => post('user', { username: name, password: pass, _csrf: csrf, _mode: 'edit', quota_mb: '20', max_file_size_mb: '10', status: 'active' });
   const secret = 'private-test-<>&-mật-khẩu';
   assert.equal((await update(secret)).status, 302);
   const stored = await kv.get(`user:${name}`);
   assert.ok(!stored.includes(secret));
-  assert.ok(JSON.parse(stored).password_encrypted.startsWith('v1.'));
-  let result = await post('password', { username: name, _csrf: csrf });
-  assert.equal(result.status, 200);
-  assert.equal(result.headers.get('Cache-Control'), 'no-store');
-  assert.equal((await result.json()).password, secret);
-  assert.equal((await update('')).status, 302);
-  assert.equal((await (await post('password', { username: name, _csrf: csrf })).json()).password, secret);
+  assert.equal(JSON.parse(stored).password_encrypted, undefined);
+  assert.equal((await post('password', { username: name, _csrf: csrf })).status, 403);
+  assert.equal(await (await stub.fetch('https://internal/drive-get', { headers: { 'X-Storage-User': name } })).json(), null);
   const page = await mf.dispatchFetch('https://test.local/admin', { headers: { Cookie: cookie } });
-  const html = await page.text();
-  assert.ok(!html.includes(secret));
-  assert.ok(!html.includes(JSON.parse(stored).password_encrypted));
-  await kv.put('user:vault_copy', stored);
-  assert.equal((await post('password', { username: 'vault_copy', _csrf: csrf })).status, 503);
-  await update('replacement-test-password');
-  assert.equal((await (await post('password', { username: name, _csrf: csrf })).json()).password, 'replacement-test-password');
+  assert.doesNotMatch(await page.text(), /viewPassword|encrypted-test-record/);
+
 });
 
 

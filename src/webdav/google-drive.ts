@@ -1,6 +1,7 @@
 import { Context, Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { AppEnv, UserConfig } from '../types';
+import { AppEnv } from '../types';
+import { encryptPassword, decryptPassword } from '../utils/password-vault';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const DRIVE_ID = /^[A-Za-z0-9_-]{10,100}$/;
@@ -42,12 +43,31 @@ export function extractDriveFolderId(input: string): string | null {
   return id && DRIVE_ID.test(id) ? id : null;
 }
 
-function apiKey(c: Context<AppEnv>): string | null {
-  return c.env.GOOGLE_API_KEY?.trim() || null;
+interface DriveConfig { folderId: string; encryptedKey: string }
+function vaultSecret(c: Context<AppEnv>): string { return c.env.DRIVE_VAULT_KEY || c.env.ADMIN_SESSION_SECRET || ''; }
+async function vaultKey(c: Context<AppEnv>): Promise<string> {
+  const secret = vaultSecret(c);
+  if (secret.length < 32) throw new Error('Drive vault unavailable');
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('vbook-drive-v1:' + secret));
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function configRequest(c: Context<AppEnv>, action: string, config?: DriveConfig): Promise<Response> {
+  const username = c.get('username');
+  return c.env.USER_STORAGE.get(c.env.USER_STORAGE.idFromName(`user:${username}`)).fetch(`https://storage.internal/drive-${action}`, {
+    method: 'POST', headers: { 'X-Storage-User': username, 'Content-Type': 'application/json' }, body: config ? JSON.stringify(config) : undefined,
+  });
+}
+async function readConfig(c: Context<AppEnv>): Promise<DriveConfig | null> {
+  const response = await configRequest(c, 'get');
+  if (!response.ok) throw new Error('Storage unavailable');
+  return response.json<DriveConfig | null>();
+}
+async function unlock(c: Context<AppEnv>, config: DriveConfig): Promise<string> {
+  return decryptPassword(await vaultKey(c), 'drive:' + c.get('username'), config.encryptedKey);
 }
 
 async function driveFetch(c: Context<AppEnv>, url: URL): Promise<Response> {
-  const key = apiKey(c);
+  const key = c.get('driveApiKey');
   if (!key) return new Response('Google Drive is not configured', { status: 503 });
   url.searchParams.set('key', key);
   try {
@@ -134,9 +154,10 @@ function propResponse(item: DriveItem, href: string, displayName: string): strin
 }
 
 async function driveWebDavHandler(c: Context<AppEnv>): Promise<Response> {
-  const folderId = c.get('user').drive_folder_id;
-  if (!folderId || !DRIVE_ID.test(folderId)) return c.text('Google Drive folder is not connected', 404);
-  if (!apiKey(c)) return c.text('Google Drive is not configured', 503);
+  const config = await readConfig(c);
+  if (!config) return c.text('Connect your Google Drive API key first', 404);
+  const folderId = config.folderId;
+  c.set('driveApiKey', await unlock(c, config));
   const segments = drivePath(c.req.url);
   if (!segments) return c.text('Forbidden', 403);
   const method = c.req.method;
@@ -189,35 +210,42 @@ function sameOrigin(c: Context<AppEnv>): boolean {
 export const driveConfigApi = new Hono<AppEnv>();
 driveConfigApi.use('*', bodyLimit({ maxSize: 4096, onError: c => c.json({ error: 'Dữ liệu quá lớn.' }, 413) }));
 
-driveConfigApi.get('/', c => {
-  c.header('Cache-Control', 'private, no-store');
-  return c.json({ configured: Boolean(c.get('user').drive_folder_id), available: Boolean(apiKey(c)), url: `${new URL(c.req.url).origin}/drive-webdav/` });
+driveConfigApi.use('*', async (c, next) => { c.header('Cache-Control', 'private, no-store'); await next(); });
+const onError = (_error: Error, c: Context<AppEnv>) => c.json({ error: 'Không đọc được cấu hình Drive. Vui lòng thử lại hoặc liên hệ người vận hành.' }, 503);
+driveConfigApi.onError(onError);
+driveWebDavApp.onError(onError);
+
+driveConfigApi.get('/', async c => {
+  const config = await readConfig(c);
+  return c.json({ configured: Boolean(config), available: vaultSecret(c).length >= 32, hasApiKey: Boolean(config), url: `${new URL(c.req.url).origin}/drive-webdav/` });
 });
 
 driveConfigApi.put('/', async c => {
   if (!sameOrigin(c)) return c.text('Forbidden', 403);
-  if (!apiKey(c)) return c.json({ error: 'Máy chủ chưa cấu hình GOOGLE_API_KEY.' }, 503);
+  if (vaultSecret(c).length < 32) return c.json({ error: 'Máy chủ chưa bật lưu khóa an toàn. Liên hệ người vận hành; không gửi API key cho admin.' }, 503);
   let body: unknown;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Dữ liệu không hợp lệ.' }, 400); }
-  const input = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>).url : null;
-  const folderId = typeof input === 'string' ? extractDriveFolderId(input) : null;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ error: 'Dữ liệu không hợp lệ.' }, 400);
+  const input = body as Record<string, unknown>;
+  const folderId = typeof input.url === 'string' ? extractDriveFolderId(input.url) : null;
   if (!folderId) return c.json({ error: 'Link thư mục Google Drive không hợp lệ.' }, 400);
+  const stored = await readConfig(c);
+  let key = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
+  if (!key && stored) key = await unlock(c, stored);
+  if (!/^[A-Za-z0-9_-]{20,256}$/.test(key)) return c.json({ error: 'Hãy nhập Google Drive API key của bạn.' }, 400);
+  c.set('driveApiKey', key);
   const metadata = await folderMetadata(c, folderId);
-  if (metadata instanceof Response) return c.json({ error: 'Không đọc được thư mục. Hãy bật “Bất kỳ ai có đường liên kết”.' }, metadata.status === 404 ? 400 : metadata.status as 429 | 503);
+  if (metadata instanceof Response) return c.json({ error: 'Không đọc được Drive. Kiểm tra API key, bật Google Drive API và quyền chia sẻ thư mục.' }, metadata.status === 404 ? 400 : metadata.status as 429 | 503);
   if (metadata.mimeType !== FOLDER_MIME) return c.json({ error: 'Link phải trỏ tới một thư mục Google Drive.' }, 400);
-  const username = c.get('username');
-  const current = await c.env.USER_KV.get<UserConfig>(`user:${username}`, 'json');
-  if (!current || current.status !== 'active') return c.text('Unauthorized', 401);
-  await c.env.USER_KV.put(`user:${username}`, JSON.stringify({ ...current, drive_folder_id: folderId }));
+  const encryptedKey = await encryptPassword(await vaultKey(c), 'drive:' + c.get('username'), key);
+  const response = await configRequest(c, 'set', { folderId, encryptedKey });
+  if (!response.ok) return c.json({ error: 'Không lưu được kết nối Drive.' }, 503);
   return c.json({ configured: true, url: `${new URL(c.req.url).origin}/drive-webdav/` });
 });
 
 driveConfigApi.delete('/', async c => {
   if (!sameOrigin(c)) return c.text('Forbidden', 403);
-  const username = c.get('username');
-  const current = await c.env.USER_KV.get<UserConfig>(`user:${username}`, 'json');
-  if (!current) return c.text('Unauthorized', 401);
-  const { drive_folder_id: _removed, ...updated } = current;
-  await c.env.USER_KV.put(`user:${username}`, JSON.stringify(updated));
+  const response = await configRequest(c, 'delete');
+  if (!response.ok) return c.json({ error: 'Không ngắt được kết nối Drive.' }, 503);
   return new Response(null, { status: 204 });
 });

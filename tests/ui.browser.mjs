@@ -158,6 +158,10 @@ test('Google Drive dialog explains the independent read-only WebDAV connection',
   const dialog = page.getByRole('dialog', { name: 'Google Drive qua WebDAV' });
   await dialog.getByText('Đã liên kết một thư mục Google Drive.').waitFor();
   assert.equal(await page.getByLabel('URL WebDAV chỉ đọc').inputValue(), 'https://library.example/drive-webdav/');
+  assert.equal(await page.getByLabel('Google Drive API key của bạn').getAttribute('type'), 'password');
+  await dialog.getByText('Cách lấy Google Drive API key', { exact: true }).click();
+  await dialog.getByText('Sao chép key vào ô phía trên.', { exact: false }).waitFor();
+  await dialog.getByText('Cách lấy Google Drive API key', { exact: true }).click();
   await dialog.screenshot({ path: '/tmp/vbook-drive-dialog.png' });
 });
 
@@ -321,7 +325,7 @@ test('clean mobile preview has a visible brand and no horizontal overflow', asyn
   await page.screenshot({ path: '/tmp/vbook-drive-delete-dialog.png' });
 });
 
-test('admin password dialog fits mobile, renders safely and returns focus when closed', { timeout: 20000 }, async t => {
+test('admin manages accounts without password or content controls on mobile', { timeout: 20000 }, async t => {
   const name = 'ui_admin_preview';
   await kv.put('user:' + name, JSON.stringify({ password_hash: 'test-only', quota_mb: 500, max_file_size_mb: 95, status: 'active' }));
   const login = await mf.dispatchFetch('https://test.local/admin/login', { method: 'POST', body: new URLSearchParams({ pin: 'ui-test-only-admin' }), redirect: 'manual' });
@@ -333,33 +337,18 @@ test('admin password dialog fits mobile, renders safely and returns focus when c
   const page = await context.newPage();
   await page.route('https://cdn.tailwindcss.com/**', route => route.fulfill({ contentType: 'text/javascript', body: 'window.tailwind = {};' }));
   await page.route('**/admin', route => route.fulfill({ contentType: 'text/html', body: html }));
-  await page.route('**/admin/password', route => route.fulfill({ json: { password: 'demo-only-<safe>&123' } }));
   await page.goto(baseURL + '/admin');
-  const button = page.locator('[data-username="' + name + '"]');
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Admin fits mobile viewport');
-  await page.screenshot({ path: '/tmp/vbook-admin-shared-mobile.png', fullPage: true });
-  await button.click();
-  const dialog = page.getByRole('dialog');
-  await dialog.waitFor();
-  assert.equal(await page.getByLabel('Mật khẩu', { exact: true }).inputValue(), 'demo-only-<safe>&123');
-  const bounds = await dialog.boundingBox();
-  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390);
-  assert.equal(await dialog.evaluate(el => getComputedStyle(el).padding), '28px');
-  await page.screenshot({ path: '/tmp/vbook-admin-dialog-mobile.png' });
-  await page.getByRole('button', { name: 'Đóng', exact: true }).click();
-  await page.locator('.password-dialog').waitFor({ state: 'detached' });
-  assert.equal(await page.locator('.password-dialog').count(), 0);
-  assert.equal(await button.evaluate(el => document.activeElement === el), true);
+  assert.equal(await page.getByRole('button', { name: 'Mật khẩu', exact: true }).count(), 0);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   const actions = page.locator('#row-' + name + ' .user-actions');
   await actions.locator('summary').click();
   const boxes = await actions.locator('button').evaluateAll(nodes => nodes.map(el => ({ height: el.getBoundingClientRect().height, whiteSpace: getComputedStyle(el).whiteSpace })));
-  assert.equal(boxes.length, 4);
+  assert.equal(boxes.length, 3);
   assert.ok(boxes.every(box => box.height === boxes[0].height && box.whiteSpace === 'nowrap'));
   await actions.locator('summary').click();
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: '/tmp/vbook-admin-shared-desktop.png', fullPage: true });
-  await button.click();
-  await page.getByRole('dialog').screenshot({ path: '/tmp/vbook-admin-dialog-desktop.png' });
+
 });
 
 

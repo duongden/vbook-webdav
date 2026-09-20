@@ -30,10 +30,9 @@ npm run check
 npx wrangler deploy --keep-vars --minify
 npx wrangler secret put ADMIN_PIN
 npx wrangler secret put ADMIN_SESSION_SECRET
-npx wrangler secret put GOOGLE_API_KEY
 ```
 
-Lệnh secret yêu cầu nhập giá trị riêng; không viết giá trị vào lệnh để tránh lưu trong lịch sử terminal. `ADMIN_SESSION_SECRET` nên là chuỗi ngẫu nhiên ít nhất 32 byte, có thể tạo bằng `openssl rand -hex 32`. `GOOGLE_API_KEY` chỉ bắt buộc khi muốn dùng WebDAV chỉ đọc với thư mục Google Drive. Sau khi đặt secret, mở `/admin` để tạo tài khoản đầu tiên. Nếu muốn xem lại mật khẩu, thêm `PASSWORD_VAULT_KEY` theo hướng dẫn phía dưới.
+Lệnh secret yêu cầu nhập giá trị riêng; không viết giá trị vào lệnh để tránh lưu trong lịch sử terminal. `ADMIN_SESSION_SECRET` cần chuỗi ngẫu nhiên ít nhất 32 byte, có thể tạo bằng `openssl rand -hex 32`. Secret này cũng bảo vệ kho key Drive nếu chưa đặt `DRIVE_VAULT_KEY` riêng. Giữ nguyên secret qua các lần deploy để giải mã được key đã lưu. Sau đó mở `/admin` để tạo tài khoản đầu tiên.
 
 ## Deploy qua GitHub
 
@@ -69,8 +68,7 @@ Xem **Bindings** của Worker để xác định đúng KV và R2. Khi cập nh�
 | --- | --- |
 | `ADMIN_PIN` | Có, để sử dụng admin |
 | `ADMIN_SESSION_SECRET` | Khuyến nghị mạnh, dùng để ký phiên admin độc lập với PIN |
-| `PASSWORD_VAULT_KEY` | Chỉ khi muốn xem lại mật khẩu |
-| `GOOGLE_API_KEY` | Chỉ khi bật thư viện WebDAV chỉ đọc từ Google Drive |
+| `DRIVE_VAULT_KEY` | Tùy chọn: secret ngẫu nhiên ít nhất 32 ký tự để mã hóa key Drive riêng biệt; mặc định dùng `ADMIN_SESSION_SECRET` |
 
 Các secret này nằm trong Worker → **Settings → Variables and Secrets**, không phải biến build. Script build chỉ tạo cấu hình tạm từ ba biến `CF_*`; không đưa khóa hoặc mật khẩu vào source.
 
@@ -102,32 +100,19 @@ npx wrangler deploy --keep-vars --minify
 
 Trước khi deploy, kiểm tra `name` trong cấu hình trùng Worker của URL đang dùng. Giữ nguyên R2/KV, binding Durable Object và lịch sử migration.
 
-Nếu secret đã đặt trên Dashboard, không khai báo lại `ADMIN_PIN`, `ADMIN_SESSION_SECRET`, `PASSWORD_VAULT_KEY` hoặc `GOOGLE_API_KEY` trong `vars` local. `--keep-vars` giữ biến Dashboard, nhưng giá trị khai báo trong cấu hình vẫn có thể ghi đè biến cùng tên. Khi chạy local, đặt các giá trị này trong `.dev.vars`, không đặt trong `wrangler.jsonc`.
+Nếu secret đã đặt trên Dashboard, không khai báo lại `ADMIN_PIN`, `ADMIN_SESSION_SECRET`, `DRIVE_VAULT_KEY` trong `vars` local. `--keep-vars` giữ biến Dashboard, nhưng giá trị khai báo trong cấu hình vẫn có thể ghi đè biến cùng tên. Khi chạy local, đặt các giá trị này trong `.dev.vars`, không đặt trong `wrangler.jsonc`.
 
 ### Google Drive qua WebDAV
 
-1. Trong Google Cloud Console, bật **Google Drive API v3** cho project.
-2. Tạo API key và giới hạn key chỉ được gọi Google Drive API.
-3. Thêm key dưới dạng Worker secret `GOOGLE_API_KEY`.
-4. Người dùng đặt thư mục Drive ở quyền **Bất kỳ ai có đường liên kết – Người xem**, sau đó liên kết từ giao diện web.
+Mỗi user tự lấy và nhập API key trong hộp **Drive** theo [hướng dẫn lấy API key](../README.md#cách-lấy-google-drive-api-key). Worker không dùng `GOOGLE_API_KEY` chung nữa.
 
-Endpoint `/drive-webdav/` dùng Basic Auth của tài khoản và chỉ hỗ trợ `OPTIONS`, `GET`, `HEAD`, `PROPFIND`. Folder ID nằm trong record tài khoản KV và không được đưa vào URL WebDAV. Request tải file hợp lệ trả redirect đến Google Drive; dữ liệu file không đi qua R2.
+Key được mã hóa AES-GCM, gắn với username và lưu trong Durable Object của user cùng Folder ID. API trạng thái chỉ trả cờ đã liên kết, không trả key hoặc bản mã. Trang admin chỉ quản lý tài khoản, quota và trạng thái; chức năng xem lại mật khẩu đã bị gỡ. Đặt lại mật khẩu sẽ gỡ kết nối Drive để user tự nhập key lại. Xóa tài khoản cũng xóa cấu hình Drive.
 
-API key không cấp quyền ghi. `PUT`, `DELETE`, `MKCOL` và các thao tác đổi tên luôn bị từ chối. Giới hạn key theo API giúp giảm tác động nếu secret bị lộ; vẫn nên đặt quota và cảnh báo sử dụng trong Google Cloud Console.
+Người vận hành phải giữ `ADMIN_SESSION_SECRET` ổn định hoặc đặt `DRIVE_VAULT_KEY` riêng trước khi user lưu key. Đổi secret mã hóa khiến key cũ không giải mã được; user cần nhập lại key. Khi nâng cấp từ bản key chung, user cần liên kết lại Drive bằng key cá nhân. Folder ID cũ trong KV không còn được dùng.
 
-Sau deploy, Wrangler in URL và Version ID. Mở web, tải lại trang và kiểm tra các thao tác cần dùng.
+Endpoint `/drive-webdav/` dùng Basic Auth của user, hỗ trợ `OPTIONS`, `GET`, `HEAD`, `PROPFIND`; dữ liệu tải trực tiếp từ Drive. Admin session không được dùng thay Basic Auth ở endpoint này hoặc API user.
 
-### Xem lại mật khẩu
-
-Tính năng tùy chọn dành cho admin:
-
-1. Tạo khóa riêng trên máy bằng `openssl rand -hex 32`.
-2. Trong Worker → **Settings → Variables and Secrets**, thêm loại **Secret**, tên `PASSWORD_VAULT_KEY`, giá trị là khóa vừa tạo.
-3. Lưu khóa riêng an toàn và giữ nguyên qua các lần deploy.
-4. Tài khoản cũ cần nhập lại mật khẩu trong **Sửa thông tin** một lần; có thể dùng lại mật khẩu cũ.
-5. Bấm **Mật khẩu** để xem hoặc sao chép. Hộp tự đóng sau 30 giây.
-
-Mật khẩu cũ chỉ có hash không thể đọc ngược. Khi cấu hình khóa, server lưu thêm bản mã hóa AES-256-GCM. Đổi hoặc mất khóa khiến bản mã hóa cũ không đọc được; kiểm tra đăng nhập bằng hash vẫn hoạt động. Khi chưa cấu hình khóa, tạo/đổi mật khẩu vẫn hoạt động nhưng chưa xem lại được. Người có quyền admin có thể đọc mật khẩu đã lưu theo cách này.
+Phạm vi bảo vệ là quyền trên ứng dụng: người kiểm soát mã Worker và hạ tầng vẫn có khả năng truy cập dữ liệu máy chủ. Đây không phải mã hóa đầu cuối. Quản trị tài khoản vẫn cho phép đặt lại mật khẩu và xóa tài khoản; xóa tài khoản sẽ xóa dữ liệu R2 của tài khoản đó.
 
 ## Nâng cấp từ bản cũ
 
@@ -147,7 +132,7 @@ Mật khẩu cũ chỉ có hash không thể đọc ngược. Khi cấu hình kh
 - KV có eventual consistency: đổi mật khẩu/khóa tài khoản có thể mất thời gian để xuất hiện ở mọi vùng.
 - Mật khẩu đăng nhập dùng PBKDF2 1.000 vòng theo cơ chế tương thích cũ, còn yếu trước tấn công offline; bảo vệ quyền truy cập KV và dùng mật khẩu dài, duy nhất.
 - Basic Auth chỉ an toàn khi đi qua HTTPS. Đăng nhập user bị giới hạn theo cặp IP/tài khoản; KV có eventual consistency nên nên kết hợp Cloudflare WAF/rate limiting cho hệ thống public.
-- Nếu bật `PASSWORD_VAULT_KEY`, admin có thể giải mã mật khẩu user. Không bật tính năng này nếu không thật sự cần xem lại mật khẩu.
+- Trang admin không cung cấp thao tác xem mật khẩu, key Drive hay duyệt nội dung user.
 - Lịch sử được sao chép trước khi thay file hiện tại. Upload lỗi giữ bản cũ; một lần ngắt tiến trình đột ngột có thể để lại bản lịch sử thừa, được tính lại vào quota.
 - Phân trang UI chạy trên danh sách đã tải về, chưa giảm tổng metadata đọc từ R2. Không chỉnh/xóa trực tiếp R2 ngoài ứng dụng khi quota đã được khởi tạo nếu chưa có bước đối soát.
 - CSS nội bộ dùng theme chung tại `src/webui/theme.ts`; không tải Tailwind CDN.

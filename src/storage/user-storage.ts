@@ -62,10 +62,21 @@ export class UserStorage {
       await this.state.storage.put('disabled', true);
       return new Response(null, { status: 204 });
     }
-    if (action !== '/retire' && await this.state.storage.get<boolean>('disabled')) {
+    if (action !== '/retire' && action !== '/drive-delete' && await this.state.storage.get<boolean>('disabled')) {
       return new Response('Account storage is disabled', { status: 403 });
     }
 
+    if (action === '/drive-get') return Response.json(await this.state.storage.get('drive-config') || null);
+    if (action === '/drive-delete') {
+      await this.state.storage.delete('drive-config');
+      return new Response(null, { status: 204 });
+    }
+    if (action === '/drive-set') {
+      const config = await request.json<{ folderId: string; encryptedKey: string }>();
+      if (!/^[A-Za-z0-9_-]{10,100}$/.test(config.folderId) || typeof config.encryptedKey !== 'string' || config.encryptedKey.length > 2048) return new Response('Invalid config', { status: 400 });
+      await this.state.storage.put('drive-config', config);
+      return new Response(null, { status: 204 });
+    }
     if (action.startsWith('/share-')) return this.handleShare(action, request);
     if (action.startsWith('/metadata-')) return this.handleMetadata(action, request, username);
 
@@ -77,6 +88,7 @@ export class UserStorage {
     if (action === '/delete' || action === '/retire') {
       if (action === '/retire') {
         await this.state.storage.put('disabled', true);
+        await this.state.storage.delete('drive-config');
         const shares = await this.state.storage.list<WebDavShare>({ prefix: 'share:' });
         if (shares.size) await this.state.storage.delete([...shares.keys()]);
       }

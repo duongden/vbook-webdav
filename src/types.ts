@@ -4,7 +4,7 @@ export type Env = {
   ADMIN_PIN: string;
   ADMIN_SESSION_SECRET?: string;
   PASSWORD_VAULT_KEY?: string;
-  GOOGLE_API_KEY?: string;
+  DRIVE_VAULT_KEY?: string;
   USER_STORAGE: DurableObjectNamespace;
 };
 
@@ -50,6 +50,7 @@ export type AppEnv = {
   Variables: {
     user: UserConfig;
     username: string;
+    driveApiKey: string;
     _csrf: string;
     _parsedBody: Record<string, unknown>;
   };

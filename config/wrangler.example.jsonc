@@ -2,7 +2,8 @@
 // Set secrets with:
 //   npx wrangler secret put ADMIN_PIN
 //   npx wrangler secret put ADMIN_SESSION_SECRET
-//   npx wrangler secret put GOOGLE_API_KEY
+// Optional separate encryption secret for per-user Drive keys:
+//   npx wrangler secret put DRIVE_VAULT_KEY
 // ADMIN_SESSION_SECRET should be a random value of at least 32 bytes.
 {
   "$schema": "node_modules/wrangler/config-schema.json",

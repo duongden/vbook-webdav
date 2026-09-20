@@ -6,7 +6,6 @@ import { validUsername } from '../utils/path';
 import { getCookie, setCookie } from 'hono/cookie';
 import { hashPassword, generateSalt } from '../utils/crypto';
 import { adminStyles } from './admin-styles';
-import { encryptPassword, decryptPassword } from '../utils/password-vault';
 import { bodyLimit } from 'hono/body-limit';
 
 export const adminApp = new Hono<AppEnv>();
@@ -362,7 +361,6 @@ adminApp.get('/', async (c) => {
                         <td class="px-4 py-4 text-right">
                           <div class="user-actions">
                             <!-- Edit -->
-                            <button type="button" class="btn btn-edit" data-username="${u.username}" onclick="viewPassword(this)">Mật khẩu</button>
                             <details class="account-menu"><summary class="btn">Thao tác</summary><div class="account-menu-items">
                             <button type="button" class="btn btn-edit shadow-sm"
                               onclick="editUser(${JSON.stringify(u.username)}, ${decimalMB(u.quota_mb)}, ${decimalMB(u.max_file_size_mb)}, '${u.status}')">
@@ -400,54 +398,6 @@ adminApp.get('/', async (c) => {
       </div>
 
       <script>
-        async function viewPassword(button) {
-          button.disabled = true;
-          try {
-            const response = await fetch('/admin/password', {
-              method: 'POST', redirect: 'error',
-              body: new URLSearchParams({ username: button.dataset.username, _csrf: document.querySelector('#user-form input[name="_csrf"]').value })
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Không xem được mật khẩu');
-            const dialog = document.createElement('dialog');
-            dialog.className = 'password-dialog';
-            dialog.setAttribute('aria-labelledby', 'password-title');
-            const label = document.createElement('h2');
-            label.id = 'password-title';
-            label.textContent = 'Mật khẩu tài khoản';
-            const account = document.createElement('p');
-            account.className = 'password-account';
-            account.textContent = button.dataset.username;
-            const field = document.createElement('input');
-            field.className = 'password-field';
-            field.readOnly = true;
-            field.value = result.password;
-            field.setAttribute('aria-label', 'Mật khẩu');
-            const close = document.createElement('button');
-            close.className = 'password-close';
-            close.textContent = 'Đóng';
-            const copy = document.createElement('button');
-            copy.className = 'password-copy';
-            copy.textContent = 'Sao chép';
-            copy.onclick = async () => {
-              try { await navigator.clipboard.writeText(field.value); copy.textContent = 'Đã sao chép'; }
-              catch { field.focus(); field.select(); copy.textContent = 'Nhấn Ctrl/Cmd + C'; }
-            };
-            const note = document.createElement('p');
-            note.className = 'password-note';
-            note.textContent = 'Cửa sổ tự đóng sau 30 giây.';
-            const footer = document.createElement('div');
-            footer.className = 'password-footer';
-            footer.append(close, copy);
-            close.onclick = () => dialog.close();
-            dialog.append(label, account, field, note, footer);
-            document.body.append(dialog);
-            const timer = setTimeout(() => dialog.close(), 30000);
-            dialog.addEventListener('close', () => { clearTimeout(timer); field.value = ''; dialog.remove(); button.focus(); }, { once: true });
-            dialog.showModal();
-          } catch (error) { showToast(error.message || 'Không xem được mật khẩu', 'error'); }
-          finally { button.disabled = false; }
-        }
         function showToast(msg, type) {
           const t = document.getElementById('toast');
           // Replace literal '+' with spaces for nicer display if generated from BE
@@ -552,15 +502,9 @@ adminApp.post('/user', async (c) => {
 
   let passwordHash = existing?.password_hash ?? '';
   let salt         = existing?.salt;
-  let encrypted = existing?.password_encrypted;
+
 
   if (password) {
-    // Without a configured vault, preserve legacy hash-only operation; never retain stale ciphertext.
-    encrypted = undefined;
-    if (c.env.PASSWORD_VAULT_KEY) {
-      try { encrypted = await encryptPassword(c.env.PASSWORD_VAULT_KEY, username, password); }
-      catch { return c.text('Password vault key is invalid; user was not changed', 503); }
-    }
     // New password provided — re-hash
     salt = generateSalt();
     passwordHash = await hashPassword(password, salt);
@@ -568,37 +512,27 @@ adminApp.post('/user', async (c) => {
 
   const config: UserConfig = {
     password_hash: passwordHash,
-    ...(encrypted ? { password_encrypted: encrypted } : {}),
     ...(salt ? { salt } : {}),
     quota_mb: quota,
     max_file_size_mb: maxSize,
     status: mode === 'create' ? 'active' : status,
-    ...(existing?.drive_folder_id ? { drive_folder_id: existing.drive_folder_id } : {}),
   };
 
   if (mode === 'create') {
     const activated = await storageRequest(c.env, username, 'activate');
     if (!activated.ok) return c.redirect('/admin?err=Previous+deletion+is+still+pending');
   }
+  if (password && mode === 'edit') {
+    const removed = await storageRequest(c.env, username, 'drive-delete');
+    if (!removed.ok) return c.text('Could not disconnect Drive before password reset', 503);
+  }
   await c.env.USER_KV.put(`user:${username}`, JSON.stringify(config));
   const msg = mode === 'create' ? `User ${username} created` : `User ${username} updated`;
   return c.redirect(`/admin?ok=${encodeURIComponent(msg)}`);
 });
 
-adminApp.post('/password', async (c) => {
-  if (!await validateCsrf(c)) return c.json({ error: 'Phiên không hợp lệ. Hãy đăng nhập lại.' }, 403);
-  const body = await getParsedBody(c);
-  const username = typeof body.username === 'string' ? body.username : '';
-  if (!validUsername(username)) return c.json({ error: 'Tên tài khoản không hợp lệ.' }, 400);
-  const user = await c.env.USER_KV.get<UserConfig>(`user:${username}`, 'json');
-  if (!user) return c.json({ error: 'Không tìm thấy tài khoản.' }, 404);
-  if (!user.password_encrypted) return c.json({ error: 'Chưa có bản mã hóa. Cấu hình PASSWORD_VAULT_KEY rồi đặt lại mật khẩu một lần.' }, 409);
-  if (!c.env.PASSWORD_VAULT_KEY) return c.json({ error: 'Chưa cấu hình PASSWORD_VAULT_KEY trên Cloudflare.' }, 503);
-  try {
-    const password = await decryptPassword(c.env.PASSWORD_VAULT_KEY, username, user.password_encrypted);
-    return c.json({ password });
-  } catch { return c.json({ error: 'Không giải mã được. Kiểm tra khóa hoặc đặt lại mật khẩu.' }, 503); }
-});
+// Legacy password-reveal requests are denied, including authenticated admins.
+adminApp.post('/password', c => c.text('Forbidden', 403));
 
 // ─── POST /admin/suspend — Toggle active/suspended ────────────────────────────
 
