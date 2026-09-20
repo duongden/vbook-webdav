@@ -172,7 +172,11 @@ async function driveWebDavHandler(c: Context<AppEnv>): Promise<Response> {
     const depth = c.req.header('Depth') || '1';
     if (depth !== '0' && depth !== '1') return c.body('<D:error xmlns:D="DAV:"><D:propfind-finite-depth/></D:error>', 403, { 'Content-Type': 'application/xml' });
     let xml = '<?xml version="1.0" encoding="utf-8" ?>\n<D:multistatus xmlns:D="DAV:">\n';
-    xml += propResponse(item, itemHref(segments, directory), segments.at(-1) || 'Google Drive');
+    // Preserve the request spelling for the self entry. Some clients identify
+    // it by exact href equality and otherwise show it again as a child folder.
+    const selfHref = new URL(c.req.url).pathname;
+    xml += propResponse(item, selfHref, segments.at(-1) || 'Google Drive');
+    if (directory) c.header('Content-Location', itemHref(segments, true));
     if (depth === '1' && directory) {
       const children = await listFolder(c, item.id);
       if (children instanceof Response) return children;

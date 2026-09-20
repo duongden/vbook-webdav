@@ -317,6 +317,22 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
   assert.match(xml, /S%C3%A1ch%20%26%20truy%E1%BB%87n\.epub/);
   assert.doesNotMatch(xml, /ROOT_FOLDER|BOOK_FILE|test-drive-key/);
 
+  // vBook can join the server and root-folder fields without a trailing slash.
+  for (const path of ['/drive-webdav', '/drive-webdav/', '/drive-webdav/' + encodeURIComponent('Tiên Hiệp'), '/drive-webdav/' + encodeURIComponent('Tiên Hiệp') + '/']) {
+    for (const depth of ['0', '1']) {
+      const response = await request(name, path, 'PROPFIND', undefined, { Depth: depth });
+      assert.equal(response.status, 207);
+      const hrefs = [...(await response.text()).matchAll(/<D:href>([^<]+)<\/D:href>/g)].map(match => match[1]);
+      assert.equal(hrefs[0], path, 'self href matches the requested collection exactly');
+      assert.equal(hrefs.filter(href => href === path).length, 1);
+      assert.equal(new Set(hrefs).size, hrefs.length);
+      const children = hrefs.filter(href => href !== path);
+      assert.equal(children.length, depth === '0' ? 0 : path.includes('%') ? 1 : 2);
+      assert.ok(children.every(href => href.startsWith(path.replace(/\/$/, '') + '/')));
+      assert.equal(response.headers.get('Content-Location'), path.replace(/\/$/, '') + '/');
+    }
+  }
+
   const nested = await mf.dispatchFetch(root + encodeURIComponent('Tiên Hiệp') + '/', { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
   assert.equal(nested.status, 207);
   assert.match(await nested.text(), /T%E1%BA%ADp%201\.pdf/);
