@@ -155,4 +155,25 @@ table{border-collapse:collapse;width:100%}th{font-size:11px;font-weight:600;colo
 
 .admin-page header{padding:16px 20px;margin-bottom:20px;align-items:center}.admin-page header h1{font-size:25px;line-height:1.2;margin:0 0 4px}.admin-page header p{margin:0;font-size:12px}.admin-page header a{padding:8px 12px;font-size:12px}.admin-page td{padding-block:10px}.user-actions{grid-template-columns:1fr 1fr;min-width:190px;align-items:start}.user-actions .btn{font-size:12px;min-height:38px;padding:8px 10px}.account-menu summary{cursor:pointer;list-style:none}.account-menu summary::-webkit-details-marker{display:none}.account-menu-items{display:grid;gap:6px;margin-top:6px}.account-menu-items form{display:contents}.account-menu[open]{grid-column:2}.admin-page td:nth-child(3){white-space:nowrap}
 @media(max-width:600px){.admin-page header{padding:14px 16px}.admin-page header h1{font-size:22px}.admin-page tbody tr{padding:12px 16px;gap:8px}.user-actions .btn{min-height:40px}}
+
+/* Balanced account dashboard: compact actions remain directly accessible. */
+.admin-shell{max-width:1280px}
+.admin-page .admin-layout{align-items:start;grid-template-columns:minmax(0,1fr)}
+.admin-page .admin-layout h2{margin:0}
+.admin-page #form-title{margin-bottom:20px;overflow-wrap:anywhere}
+.admin-page .user-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;min-width:0}
+.admin-page .user-actions form{display:block;margin:0}
+.admin-page .admin-icon-button,.admin-page .user-actions .admin-icon-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;min-height:40px;padding:0;border-radius:10px}
+.admin-icon-button svg{width:18px;height:18px;flex-shrink:0}
+.admin-icon-button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.admin-page td{vertical-align:middle}
+.admin-page td:first-child{overflow-wrap:anywhere;max-width:180px}
+.admin-page td:nth-child(2){min-width:130px;font-variant-numeric:tabular-nums}
+.admin-page td:nth-child(3){font-variant-numeric:tabular-nums}
+.admin-page td:last-child{width:144px}
+.admin-page tbody tr:last-child td{border-bottom:0}
+.admin-page .bar-track{width:100%;max-width:160px}
+@media(min-width:1000px){.admin-page .admin-layout{grid-template-columns:280px minmax(0,1fr);gap:24px}}
+@media(max-width:999px){.admin-page .sticky{position:static}.admin-page #user-form{display:grid;grid-template-columns:1fr 1fr;gap:16px}.admin-page #user-form>*{margin:0}.admin-page #user-form>div:last-child{align-self:end}}
+@media(max-width:600px){.admin-page #user-form{display:block}.admin-page #user-form>div+div{margin-top:16px}.admin-page td:last-child{width:auto}.admin-page td:first-child{max-width:none}.admin-page td:nth-child(2){min-width:0}.admin-page .user-actions{justify-content:flex-end;border-top:1px solid var(--line);padding-top:10px}.admin-page .user-actions .admin-icon-button{flex-basis:44px;width:44px;height:44px;min-height:44px}.admin-page .bar-track{max-width:none}}
 `;

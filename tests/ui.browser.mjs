@@ -341,11 +341,13 @@ test('admin manages accounts without password or content controls on mobile', { 
   assert.equal(await page.getByRole('button', { name: 'Mật khẩu', exact: true }).count(), 0);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   const actions = page.locator('#row-' + name + ' .user-actions');
-  await actions.locator('summary').click();
-  const boxes = await actions.locator('button').evaluateAll(nodes => nodes.map(el => ({ height: el.getBoundingClientRect().height, whiteSpace: getComputedStyle(el).whiteSpace })));
+  const boxes = await actions.locator('button').evaluateAll(nodes => nodes.map(el => ({ height: el.getBoundingClientRect().height, width: el.getBoundingClientRect().width, title: el.title, label: el.getAttribute('aria-label'), text: el.textContent.trim(), whiteSpace: getComputedStyle(el).whiteSpace })));
+  assert.ok(boxes.every(box => box.width === 44 && box.height === 44 && box.title && box.label && !box.text));
+  await actions.getByRole('button', { name: 'Sửa thông tin ' + name }).click();
+  assert.equal(await page.locator('#f-username').inputValue(), name);
+  await page.screenshot({ path: '/tmp/vbook-admin-compact-mobile.png', fullPage: true });
   assert.equal(boxes.length, 3);
   assert.ok(boxes.every(box => box.height === boxes[0].height && box.whiteSpace === 'nowrap'));
-  await actions.locator('summary').click();
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: '/tmp/vbook-admin-shared-desktop.png', fullPage: true });
 

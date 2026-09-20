@@ -8,6 +8,13 @@ import { hashPassword, generateSalt } from '../utils/crypto';
 import { adminStyles } from './admin-styles';
 import { bodyLimit } from 'hono/body-limit';
 
+const adminIcon = (path: string) => html`<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`;
+const editIcon = adminIcon('m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z M13.5 8l3 3');
+const lockIcon = adminIcon('M5 10h14v11H5z M8 10V7a4 4 0 0 1 8 0v3');
+const unlockIcon = adminIcon('M5 10h14v11H5z M8 10V7a4 4 0 0 1 7-2');
+const trashIcon = adminIcon('M3 6h18 M9 6V4h6v2 M5 6l1 14h12l1-14 M10 10v6 M14 10v6');
+const logoutIcon = adminIcon('M9 4H4v16h5 M10 12h10 M16 8l4 4-4 4');
+
 export const adminApp = new Hono<AppEnv>();
 
 adminApp.use('*', bodyLimit({ maxSize: 32 * 1024, onError: c => c.text('Payload Too Large', 413) }));
@@ -218,8 +225,8 @@ adminApp.get('/', async (c) => {
 
   function fmtBytes(b: number) {
     if (b === 0) return '0 B';
-    const k = 1000, s = ['B','KB','MB','GB'];
-    const i = Math.floor(Math.log(b) / Math.log(k));
+    const k = 1000, s = ['B','KB','MB','GB','TB'];
+    const i = Math.min(s.length - 1, Math.floor(Math.log(b) / Math.log(k)));
     return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
   }
 
@@ -235,16 +242,16 @@ adminApp.get('/', async (c) => {
     <body class="admin-page p-8">
       <div id="toast"></div>
 
-      <div class="max-w-6xl mx-auto">
+      <div class="admin-shell mx-auto">
         <header class="flex justify-between items-center mb-8 glass p-5 rounded-2xl">
           <div>
             <h1 class="text-2xl font-bold text-slate-800">Admin Dashboard</h1>
             <p class="text-sm text-slate-500 mt-1">${users.length} user${users.length !== 1 ? 's' : ''} registered</p>
           </div>
-          <a href="/admin/logout" class="text-sm font-medium text-slate-500 hover:text-danger transition-colors bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">Logout →</a>
+          <a href="/admin/logout" class="btn admin-icon-button" title="Đăng xuất" aria-label="Đăng xuất">${logoutIcon}</a>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="admin-layout grid grid-cols-1 gap-6">
 
           <!-- ── Sidebar: Add / Edit Form ── -->
           <div class="lg:col-span-1">
@@ -313,7 +320,7 @@ adminApp.get('/', async (c) => {
             <div class="glass rounded-2xl overflow-hidden bg-white/60">
               <div class="p-5 border-b border-slate-200 flex items-center justify-between bg-white/40">
                 <h2 class="text-lg font-bold text-slate-800">Users</h2>
-                <span class="text-xs text-slate-500 font-medium bg-secondary px-3 py-1 rounded-full">Click Edit to modify a user</span>
+                <span class="text-xs text-slate-500">Quản lý tài khoản</span>
               </div>
               <div class="overflow-x-auto">
                 <table class="w-full text-left">
@@ -340,15 +347,14 @@ adminApp.get('/', async (c) => {
                           <span class="font-bold text-slate-800">${u.username}</span>
                         </td>
                         <td class="px-4 py-4">
-                          <div class="text-xs text-slate-600 mb-1.5 font-medium">${fmtBytes(usageBytes)} / ${decimalMB(u.quota_mb).toLocaleString('vi-VN')} MB</div>
+                          <div class="text-xs text-slate-600 mb-1.5 font-medium">${fmtBytes(usageBytes)} / ${fmtBytes(quotaBytes)}</div>
                           <div class="bar-track w-28 shadow-inner">
                             <div class="bar-fill" style="width:${pct}%;background:${barColor}"></div>
-                            </div></details>
                           </div>
                         </td>
                         <td class="px-4 py-4 text-xs text-slate-500">
-                          <div class="mb-0.5">Quota: <span class="font-medium text-slate-700">${decimalMB(u.quota_mb).toLocaleString('vi-VN')} MB</span></div>
-                          <div>Max file: <span class="font-medium text-slate-700">${decimalMB(u.max_file_size_mb).toLocaleString('vi-VN')} MB</span></div>
+                          <div class="mb-0.5">Quota: <span class="font-medium text-slate-700">${fmtBytes(quotaBytes)}</span></div>
+                          <div>Max file: <span class="font-medium text-slate-700">${fmtBytes(u.max_file_size_mb * 1024 * 1024)}</span></div>
                         </td>
                         <td class="px-4 py-4">
                           <span class="text-xs px-2.5 py-1 rounded-full font-bold shadow-sm
@@ -361,10 +367,10 @@ adminApp.get('/', async (c) => {
                         <td class="px-4 py-4 text-right">
                           <div class="user-actions">
                             <!-- Edit -->
-                            <details class="account-menu"><summary class="btn">Thao tác</summary><div class="account-menu-items">
-                            <button type="button" class="btn btn-edit shadow-sm"
+
+                            <button type="button" class="btn btn-edit admin-icon-button" title="Sửa thông tin" aria-label="Sửa thông tin ${u.username}"
                               onclick="editUser(${JSON.stringify(u.username)}, ${decimalMB(u.quota_mb)}, ${decimalMB(u.max_file_size_mb)}, '${u.status}')">
-                              Sửa thông tin
+                              ${editIcon}
                             </button>
 
                             <!-- Suspend / Activate toggle -->
@@ -372,8 +378,8 @@ adminApp.get('/', async (c) => {
                               <input type="hidden" name="_csrf" value="${csrf}">
                               <input type="hidden" name="username" value="${u.username}">
                               <input type="hidden" name="action" value="${u.status === 'active' ? 'suspend' : 'activate'}">
-                              <button type="submit" class="btn ${u.status === 'active' ? 'btn-suspend' : 'btn-activate'} shadow-sm">
-                                ${u.status === 'active' ? 'Tạm khóa' : 'Mở khóa'}
+                              <button type="submit" class="btn ${u.status === 'active' ? 'btn-suspend' : 'btn-activate'} admin-icon-button" title="${u.status === 'active' ? 'Tạm khóa' : 'Mở khóa'}" aria-label="${u.status === 'active' ? 'Tạm khóa' : 'Mở khóa'} ${u.username}">
+                                ${u.status === 'active' ? lockIcon : unlockIcon}
                               </button>
                             </form>
 
@@ -382,9 +388,8 @@ adminApp.get('/', async (c) => {
                               onsubmit="return confirm('Delete user ${u.username} and ALL their files?')">
                               <input type="hidden" name="_csrf" value="${csrf}">
                               <input type="hidden" name="username" value="${u.username}">
-                              <button type="submit" class="btn btn-delete shadow-sm">Xóa tài khoản</button>
+                              <button type="submit" class="btn btn-delete admin-icon-button" title="Xóa tài khoản" aria-label="Xóa tài khoản ${u.username}">${trashIcon}</button>
                             </form>
-                            </div></details>
                           </div>
                         </td>
                       </tr>
@@ -423,6 +428,7 @@ adminApp.get('/', async (c) => {
           document.getElementById('status-row').classList.remove('hidden');
           document.getElementById('form-cancel-btn').classList.remove('hidden');
           document.getElementById('user-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          document.getElementById('f-quota').focus({ preventScroll: true });
           showToast('Editing ' + username, 'info');
         }
 
