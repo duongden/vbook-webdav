@@ -40,7 +40,7 @@ after(async () => {
   await mf?.dispose();
   if (directory) await rm(directory, { recursive: true, force: true });
 });
-async function openDrive(t, { files = defaultFiles, width = 1280, height = 900 } = {}) {
+async function openDrive(t, { files = defaultFiles, width = 1280, height = 900, browseFolders = false } = {}) {
   const username = 'ui_demo_' + ++counter;
   const salt = '11'.repeat(16);
   await kv.put('user:' + username, JSON.stringify({
@@ -55,6 +55,7 @@ async function openDrive(t, { files = defaultFiles, width = 1280, height = 900 }
   t.after(async () => { await context.close(); assert.deepEqual(errors, [], 'Browser script errors'); });
   await page.goto(baseURL, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Tệp của tôi', exact: true }).waitFor();
+  if (!browseFolders) await page.getByRole('button', { name: 'Xem tất cả tệp', exact: true }).click();
   return { page, username, context };
 }
 async function confirmDelete(page, filename) {
@@ -393,13 +394,13 @@ test('many backups paginate and filter history while preserving search and manua
  test('creates nested folders, persists empty folders and uploads extension files there', async t => {
   const { page, username } = await openDrive(t, { files: [] });
   await page.getByRole('button', { name: 'Tạo thư mục', exact: true }).click();
-  await page.getByLabel('Đường dẫn thư mục').fill('vbookext/demo/src');
+  await page.getByRole('textbox', { name: 'Đường dẫn thư mục', exact: true }).fill('vbookext/demo/src');
   await page.getByRole('button', { name: 'Tạo', exact: true }).click();
   await waitText(page, 'toast-message', 'Đã tạo thư mục');
   assert.ok(await bucket.head(username + '/vbookext/demo/src/'));
   await page.reload();
-  await page.locator('.folder-panel summary').click();
-  await page.getByRole('button', { name: 'vbookext/demo/src/', exact: true }).click();
+  for (const name of ['vbookext', 'demo', 'src']) await page.getByRole('button', { name: 'Mở thư mục ' + name, exact: true }).click();
+  await page.getByRole('button', { name: 'Tải tệp lên', exact: true }).click();
   assert.equal(await page.getByLabel('Thư mục đích').inputValue(), 'vbookext/demo/src');
   await page.locator('#upload-files').setInputFiles({ name: 'home.js', mimeType: 'text/javascript', buffer: Buffer.from('function execute() {}') });
   await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
@@ -407,3 +408,30 @@ test('many backups paginate and filter history while preserving search and manua
   assert.equal(await (await bucket.get(username + '/vbookext/demo/src/home.js')).text(), 'function execute() {}');
   assert.equal(await bucket.head(username + '/library/vbookext/demo/src/home.js'), null);
  });
+
+test('folder browsing isolates extensions and creates subfolders in the current folder', async t => {
+  const { page, username } = await openDrive(t, { browseFolders: true, width: 390, files: [
+    { name: 'vbookext/demo/plugin.json', size: 12 }, { name: 'vbookext/other/plugin.json', size: 24 }, { name: 'vbook_backup/data.zip', size: 32 }
+  ] });
+  assert.equal(await page.locator('[data-file]:visible').count(), 0);
+  await page.getByRole('button', { name: 'Mở thư mục vbookext', exact: true }).click();
+  await page.getByRole('button', { name: 'Mở thư mục demo', exact: true }).click();
+  assert.equal(await page.locator('[data-file]:visible').count(), 1);
+  assert.equal(await page.locator('[data-file]:visible').getAttribute('data-name'), 'vbookext/demo/plugin.json');
+  await page.getByRole('button', { name: 'Tạo thư mục', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Đường dẫn thư mục', exact: true }).fill('src');
+  await page.getByRole('button', { name: 'Tạo', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã tạo thư mục');
+  assert.ok(await bucket.head(username + '/vbookext/demo/src/'));
+  await page.getByRole('button', { name: 'Mở thư mục src', exact: true }).click();
+  await page.getByRole('heading', { name: 'Thư mục đang trống' }).waitFor();
+  await page.getByRole('button', { name: 'Tải tệp lên', exact: true }).click();
+  assert.equal(await page.getByLabel('Thư mục đích').inputValue(), 'vbookext/demo/src');
+  await page.keyboard.press('Escape');
+  await page.locator('#folder-breadcrumb').getByRole('button', { name: 'demo', exact: true }).click();
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click();
+  await waitText(page, 'sync-note', 'Vừa cập nhật');
+  assert.equal(await page.locator('[data-file]:visible').count(), 1);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({ path: '/tmp/vbook-extension-folders-mobile.png', fullPage: true });
+});

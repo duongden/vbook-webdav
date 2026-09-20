@@ -66,12 +66,12 @@ Trên điện thoại, các nút được thu gọn thành icon nhưng vẫn có
 ## Tạo thư mục và upload extension thủ công
 
 1. Bấm icon **thư mục có dấu cộng** trên thanh thao tác (tooltip **Tạo thư mục**).
-2. Nhập `vbookext` hoặc đường dẫn nhiều cấp như `vbookext/ten-extension/src` rồi bấm **Tạo**.
-3. Mở mục **Thư mục · chọn để tải tệp vào**. Thư mục rỗng vẫn hiển thị sau khi tải lại trang.
-4. Bấm tên thư mục để mở hộp upload với đúng đường dẫn đích.
+2. Ở thư mục gốc, nhập `vbookext` rồi bấm **Tạo**. Bấm tên thư mục để mở.
+3. Trong `vbookext`, tạo thư mục `ten-extension`. Mở thư mục này và tạo tiếp `src`. Bạn cũng có thể nhập đường dẫn nhiều cấp; đường dẫn được tính từ thư mục đang mở.
+4. Bấm **Tải tệp lên** để upload vào thư mục đang mở. Bấm các tên trên thanh đường dẫn để quay lại thư mục cha. Thư mục rỗng vẫn hiển thị sau khi tải lại trang.
 5. Upload `plugin.json`, `icon.png` vào `vbookext/ten-extension`; upload các file JavaScript vào `vbookext/ten-extension/src`.
 
-Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư mục để giữ cấu trúc extension. Danh sách tệp vẫn hiển thị đường dẫn của từng file. Nếu tạo nhiều cấp bị gián đoạn, những cấp đã tạo vẫn được giữ; làm mới danh sách rồi thử lại.
+Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư mục để giữ cấu trúc extension. Mặc định danh sách chỉ hiển thị nội dung thư mục đang mở; bấm **Xem tất cả tệp** để xem danh sách tổng hợp. Tìm kiếm trong một thư mục bao gồm tệp trong các thư mục con. Nếu tạo nhiều cấp bị gián đoạn, những cấp đã tạo vẫn được giữ; làm mới danh sách rồi thử lại.
 
 ## Tải truyện lên thư viện
 
@@ -83,7 +83,7 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 
 <img src="docs/images/upload-dialog.png" alt="Hộp tải file lên với ô thư mục và vùng chọn hoặc kéo thả nhiều file" width="410">
 
-Thư mục đích mặc định là `library`. Bạn có thể đổi sang thư mục khác của tài khoản; thư mục `backup-history` dành riêng cho lịch sử và không nhận upload. Bạn có thể upload EPUB, PDF, CBZ, TXT và các loại file khác; file tải xuống luôn được trình duyệt xử lý như tệp đính kèm.
+Khi duyệt thư mục, thư mục đích mặc định là thư mục đang mở; để trống đường dẫn nghĩa là thư mục gốc. Bạn có thể đổi sang thư mục khác của tài khoản; thư mục `backup-history` dành riêng cho lịch sử và không nhận upload. Bạn có thể upload EPUB, PDF, CBZ, TXT và các loại file khác; file tải xuống luôn được trình duyệt xử lý như tệp đính kèm.
 
 Nếu upload một file vào đúng đường dẫn đã tồn tại, bản cũ được chuyển sang **Lịch sử**. Thao tác này dùng thêm dung lượng thay vì ghi mất bản cũ.
 

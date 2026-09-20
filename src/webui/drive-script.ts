@@ -19,6 +19,9 @@ export const driveScript = String.raw`
   let selected = null;
   let page = 1;
   let backupFilter = 'all';
+  let currentFolder = '';
+  let folderMode = true;
+  let knownFolders = Array.from(document.querySelectorAll('#upload-folders option'), option => option.value);
   const pageSize = 20;
   let toastTimer;
   let refreshing = false;
@@ -99,7 +102,9 @@ export const driveScript = String.raw`
     const matches = all.filter(row => {
       const metadata = rowMetadata(row);
       const searchable = [row.dataset.name, metadata.title, metadata.author, metadata.category, metadata.description].filter(Boolean).join(' ');
-      return normalize(searchable).includes(query) && (backupFilter === 'all' || row.dataset.name.startsWith('backup-history/') === (backupFilter === 'history'));
+      const parent = row.dataset.name.includes('/') ? row.dataset.name.slice(0, row.dataset.name.lastIndexOf('/')) : '';
+      const inFolder = !folderMode || (query ? row.dataset.name.startsWith(currentFolder ? currentFolder + '/' : '') : parent === currentFolder);
+      return inFolder && normalize(searchable).includes(query) && (backupFilter === 'all' || row.dataset.name.startsWith('backup-history/') === (backupFilter === 'history'));
     });
     const visible = matches.length;
     const pages = Math.max(1, Math.ceil(visible / pageSize));
@@ -118,15 +123,21 @@ export const driveScript = String.raw`
     document.getElementById('previous-page').disabled = page <= 1;
     document.getElementById('next-page').disabled = page >= pages;
     document.querySelector('.pagination').hidden = pages <= 1;
-    document.getElementById('empty-state').hidden = visible > 0;
+    const childCount = renderFolderNavigation(query);
+    document.getElementById('file-count').textContent = visible;
+    document.getElementById('empty-state').hidden = visible > 0 || childCount > 0;
     document.getElementById('empty-title').textContent = all.length ? 'Không tìm thấy tệp phù hợp' : 'Kho lưu trữ đang trống';
     document.getElementById('empty-message').textContent = all.length ? 'Thử tên khác hoặc xóa bộ lọc để xem tất cả tệp.' : 'Đồng bộ từ ứng dụng VBook hoặc Legado để bản sao lưu xuất hiện tại đây.';
+    if (folderMode && !query) {
+      document.getElementById('empty-title').textContent = 'Thư mục đang trống';
+      document.getElementById('empty-message').textContent = 'Tạo thư mục con hoặc tải tệp vào đây.';
+    }
     document.getElementById('clear-search').hidden = !query && backupFilter === 'all';
   }
   search.addEventListener('input', () => { page = 1; filterAndSort(); });
   sort.addEventListener('change', () => { page = 1; filterAndSort(); });
   document.querySelectorAll('[data-backup-filter]').forEach(button => button.addEventListener('click', () => {
-    backupFilter = button.dataset.backupFilter; page = 1;
+    backupFilter = button.dataset.backupFilter; folderMode = false; page = 1;
     document.querySelectorAll('[data-backup-filter]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
     filterAndSort();
   }));
@@ -384,6 +395,7 @@ export const driveScript = String.raw`
     document.getElementById('upload-selection').textContent = selectedUploadFiles.length ? selectedUploadFiles.length + ' tệp · ' + formatBytes(selectedUploadFiles.reduce((sum, file) => sum + file.size, 0)) : 'Chưa chọn tệp.';
   }
   document.getElementById('open-upload').addEventListener('click', () => {
+    if (folderMode) document.getElementById('upload-folder').value = currentFolder;
     uploadStatus.textContent = '';
     uploadProgress.hidden = true;
     uploadDialog.showModal();
@@ -593,31 +605,70 @@ export const driveScript = String.raw`
   const folderDialog = document.getElementById('folder-dialog');
   const folderStatus = document.getElementById('folder-status');
   function renderFolders(folders) {
-    const container = document.getElementById('folder-list');
+    knownFolders = folders;
     const options = document.getElementById('upload-folders');
-    container.replaceChildren(); options.replaceChildren();
+    options.replaceChildren();
     for (const folder of folders) {
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'btn folder-target'; button.dataset.folder = folder;
-      button.textContent = folder + '/'; button.title = 'Tải tệp vào ' + folder;
-      container.append(button);
       const option = document.createElement('option'); option.value = folder; options.append(option);
     }
-    document.getElementById('folder-empty').hidden = folders.length > 0;
   }
-  document.getElementById('folder-list').addEventListener('click', event => {
-    const target = event.target.closest('[data-folder]');
-    if (!target) return;
-    document.getElementById('upload-folder').value = target.dataset.folder;
-    document.getElementById('open-upload').click();
+  function openFolder(folder) {
+    currentFolder = folder; folderMode = true; backupFilter = 'all'; page = 1; search.value = '';
+    document.querySelectorAll('[data-backup-filter]').forEach(item => item.setAttribute('aria-pressed', String(item.dataset.backupFilter === 'all')));
+    filterAndSort();
+  }
+  function renderFolderNavigation(query) {
+    const container = document.getElementById('folder-list');
+    const breadcrumb = document.getElementById('folder-breadcrumb');
+    container.replaceChildren(); breadcrumb.replaceChildren();
+    document.getElementById('toggle-folder-view').textContent = folderMode ? 'Xem tất cả tệp' : 'Duyệt thư mục';
+    document.getElementById('toggle-folder-view').setAttribute('aria-pressed', String(!folderMode));
+    document.getElementById('files-title').textContent = folderMode ? (currentFolder ? baseName(currentFolder) : 'Thư mục gốc') : 'Tất cả tệp';
+    const crumb = (name, path, active) => {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn';
+      button.textContent = name; button.dataset.openFolder = path;
+      if (active) button.setAttribute('aria-current', 'location');
+      breadcrumb.append(button);
+    };
+    crumb('Thư mục gốc', '', folderMode && !currentFolder);
+    if (!folderMode) return 0;
+    const parts = currentFolder ? currentFolder.split('/') : [];
+    parts.forEach((part, index) => {
+      const separator = document.createElement('span'); separator.textContent = '/'; separator.setAttribute('aria-hidden', 'true'); breadcrumb.append(separator);
+      crumb(part, parts.slice(0, index + 1).join('/'), index === parts.length - 1);
+    });
+    const prefix = currentFolder ? currentFolder + '/' : '';
+    const children = knownFolders.filter(folder => folder.startsWith(prefix) && !folder.slice(prefix.length).includes('/') && normalize(folder).includes(query));
+    for (const folder of children) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn folder-target'; button.dataset.openFolder = folder;
+      button.setAttribute('aria-label', 'Mở thư mục ' + baseName(folder));
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', 'M3 7V4h6l3 3h9v13H3V7Z'); icon.append(path);
+      const label = document.createElement('span'); label.textContent = baseName(folder);
+      button.append(icon, label); container.append(button);
+    }
+    return children.length;
+  }
+  for (const id of ['folder-list', 'folder-breadcrumb']) document.getElementById(id).addEventListener('click', event => {
+    const target = event.target.closest('[data-open-folder]');
+    if (target) openFolder(target.dataset.openFolder);
+  });
+  document.getElementById('toggle-folder-view').addEventListener('click', () => {
+    folderMode = !folderMode; page = 1; filterAndSort();
   });
   document.getElementById('new-folder').addEventListener('click', () => {
-    folderStatus.textContent = ''; folderDialog.showModal(); document.getElementById('folder-path').focus();
+    folderStatus.textContent = '';
+    document.getElementById('folder-path').value = '';
+    document.getElementById('folder-parent').textContent = 'Tạo trong: ' + (folderMode && currentFolder ? currentFolder + '/' : 'Thư mục gốc');
+    folderDialog.showModal(); document.getElementById('folder-path').focus();
   });
   document.getElementById('close-folder').addEventListener('click', () => folderDialog.close());
   document.getElementById('folder-form').addEventListener('submit', async event => {
     event.preventDefault();
-    const path = document.getElementById('folder-path').value.trim().replace(/^\/+|\/+$/g, '');
+    const relative = document.getElementById('folder-path').value.trim().replace(/^\/+|\/+$/g, '');
+    if (!relative) { folderStatus.textContent = 'Hãy nhập tên thư mục.'; return; }
+    const parent = folderMode ? currentFolder : '';
+    const path = (parent ? parent + '/' : '') + relative;
     const parts = path.split('/');
     if (!path || parts[0] === 'backup-history' || parts.some(part => !part || part === '.' || part === '..' || /[\\\u0000-\u001f\u007f]/.test(part))) {
       folderStatus.textContent = 'Đường dẫn thư mục không hợp lệ.'; return;
@@ -630,7 +681,7 @@ export const driveScript = String.raw`
       }
       document.getElementById('upload-folder').value = path;
       await refreshFiles(true);
-      document.querySelector('.folder-panel').open = true;
+      openFolder(parent);
       folderDialog.close(); showToast('Đã tạo thư mục ' + path + '.');
     } catch (error) {
       folderStatus.textContent = error.message === '405' ? 'Có tệp trùng tên với thư mục này.' : 'Chưa tạo được đầy đủ thư mục. Hãy làm mới danh sách và thử lại.';
