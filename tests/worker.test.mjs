@@ -580,3 +580,30 @@ test('large folder MOVE resumes before new writes and preserves every file', asy
   assert.equal((await bucket.list({ prefix: name + '/tree/' })).objects.length, 0);
   assert.equal((await bucket.list({ prefix: name + '/moved/' })).objects.length, 25);
 });
+
+test('extension links serve only vbookext files without login and can be revoked', async () => {
+  const name = await user('extension_owner');
+  await bucket.put(name + '/vbookext/plugin.json', '{"name":"demo"}');
+  await bucket.put(name + '/vbookext/demo/plugin.zip', 'package');
+  await bucket.put(name + '/library/private.txt', 'private');
+  const headers = { 'X-VBook-Action': 'extensions' };
+  assert.equal((await request(name, '/api/extensions', 'POST')).status, 403);
+  assert.equal((await request(name, '/api/extensions', 'POST', undefined, { ...headers, Origin: 'https://evil.test' })).status, 403);
+  const { baseUrl } = await (await request(name, '/api/extensions', 'POST', undefined, headers)).json();
+  assert.equal((await (await request(name, '/api/extensions', 'POST', undefined, headers)).json()).baseUrl, baseUrl);
+  const json = await mf.dispatchFetch(baseUrl + 'plugin.json');
+  assert.equal(json.status, 200);
+  assert.equal(await json.text(), '{"name":"demo"}');
+  assert.equal(await (await mf.dispatchFetch(baseUrl + 'demo/plugin.zip')).text(), 'package');
+  assert.equal((await mf.dispatchFetch(baseUrl + 'plugin.json', { method: 'HEAD' })).status, 200);
+  assert.equal((await mf.dispatchFetch(baseUrl + 'plugin.json', { method: 'DELETE' })).status, 405);
+  assert.ok((await mf.dispatchFetch(baseUrl + '%2e%2e%2flibrary/private.txt')).status >= 400);
+  assert.ok((await mf.dispatchFetch(baseUrl + 'library/private.txt')).status >= 400);
+  await request(name, '/api/extensions', 'DELETE', undefined, headers);
+  assert.equal((await mf.dispatchFetch(baseUrl + 'plugin.json')).status, 404);
+  const next = await (await request(name, '/api/extensions', 'POST', undefined, headers)).json();
+  assert.notEqual(next.baseUrl, baseUrl);
+  const account = await kv.get('user:' + name, 'json');
+  await kv.put('user:' + name, JSON.stringify({ ...account, status: 'suspended' }));
+  assert.equal((await mf.dispatchFetch(next.baseUrl + 'plugin.json')).status, 404);
+});

@@ -75,9 +75,21 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 
 ## Tải truyện lên thư viện
 
+### Lấy link nguồn extension cho vBook
+
+1. Upload `plugin.json` và các tệp đi kèm vào `vbookext`, giữ đúng cấu trúc thư mục.
+2. Bấm icon liên kết có tooltip **Lấy link extension** ở hàng tệp `plugin.json`.
+3. Chọn **Sao chép**, rồi dán link vào phần thêm nguồn tương ứng trong vBook.
+
+Link cho phép tải không cần nhập mật khẩu WebDAV. Ai có mã trong link có thể tải tệp trong `vbookext`; các thư mục khác vẫn riêng tư. Các link dùng chung mã để hỗ trợ tệp đi kèm theo đường dẫn tương đối. Nếu cấu hình dùng URL tuyệt đối, bạn cần sửa chúng sang link đúng của từng tệp; nút lấy link cũng có trên các tệp khác trong `vbookext`.
+
+`plugin.json` phải đúng định dạng nguồn mà phiên bản vBook của bạn hỗ trợ; chức năng này cung cấp link tải, không tự chuyển manifest extension thành danh sách kho nguồn. Chọn **Thu hồi link** trong popup để vô hiệu hóa toàn bộ link extension đã cấp. Lần lấy link tiếp theo sẽ tạo mã mới và cần cập nhật lại trong vBook.
+
 ### Chọn kiểu xem và di chuyển tệp
 
 - Hai nút icon **Danh sách chi tiết** và **Dạng lưới** đổi cách hiển thị cả tệp lẫn thư mục. Trình duyệt ghi nhớ lựa chọn này.
+- Tick ô cạnh từng tệp/thư mục để chọn nhiều mục. **Chọn tất cả đang hiển thị** chọn các mục trên trang hiện tại; **Bỏ chọn** hoặc phím **Esc** xóa lựa chọn. Mục bị ẩn khi đổi thư mục, tìm kiếm hoặc chuyển trang sẽ được bỏ chọn.
+- Kéo một mục đã chọn để chuyển cả nhóm. Nếu chọn cả thư mục và tệp bên trong, thư mục chỉ được chuyển một lần. Nhóm được xử lý lần lượt; nếu có lỗi hoặc tác vụ còn chờ, các mục tiếp theo chưa được chuyển và giao diện báo tiến độ thực tế.
 - Trên máy tính, kéo tệp hoặc thư mục thả vào thư mục đích. Có thể thả lên tên thư mục trên thanh đường dẫn để chuyển về thư mục cha hoặc thư mục gốc.
 - Trên màn hình cảm ứng, nhấn giữ tệp hoặc thư mục đến khi nhãn kéo xuất hiện, rồi kéo tới thư mục đích và thả. Vuốt bình thường vẫn cuộn trang. Cả list và grid đều hỗ trợ kéo thả, kể cả khi đang xem tất cả tệp.
 - Có thể thả tệp từ máy tính trực tiếp vào vùng quản lý hoặc lên một thư mục để mở hộp upload với đúng thư mục đích, rồi bấm **Tải lên**. Thư mục từ máy tính cần được tạo và upload các tệp bên trong theo từng cấp như hướng dẫn phía trên.
@@ -90,7 +102,7 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 2. Chọn **Thư mục đích**, ví dụ `library/Tiên Hiệp` hoặc `vbookext/ten-extension/src`.
 3. Chọn file hoặc kéo thả nhiều file vào vùng chọn.
 4. Kiểm tra số file đã chọn rồi bấm **Tải lên**.
-5. Giữ trang mở cho đến khi có thông báo hoàn tất.
+5. Giữ trang mở cho đến khi có thông báo hoàn tất. Popup tự đóng khi tất cả tệp tải lên thành công; nếu có lỗi, popup giữ mở để bạn kiểm tra.
 
 <img src="docs/images/upload-dialog.png" alt="Hộp tải file lên với ô thư mục và vùng chọn hoặc kéo thả nhiều file" width="410">
 

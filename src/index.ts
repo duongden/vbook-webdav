@@ -8,6 +8,8 @@ import { shareApi, sharedApp } from './webdav/shares';
 import { metadataApi } from './webui/metadata';
 import { driveConfigApi, driveWebDavApp } from './webdav/google-drive';
 
+import { extensionApi, extensionApp } from './webdav/extensions';
+
 const app = new Hono<AppEnv>();
 
 app.use('*', async (c, next) => {
@@ -23,6 +25,7 @@ app.use('*', async (c, next) => {
 
 // Publicly reachable WebDAV shares use their own read-only credentials.
 app.route('/shared', sharedApp);
+app.route('/extensions', extensionApp);
 
 // 1. Mount Admin Dashboard (No basic auth required, uses PIN cookie)
 app.route('/admin', adminApp);
@@ -33,6 +36,7 @@ app.all('/admin/*', (c) => c.notFound());
 app.use('*', userAuthMiddleware);
 
 app.route('/api/shares', shareApi);
+app.route('/api/extensions', extensionApi);
 app.route('/api/metadata', metadataApi);
 app.route('/api/drive', driveConfigApi);
 app.route('/drive-webdav', driveWebDavApp);

@@ -27,6 +27,7 @@ export const driveScript = String.raw`
   const driveDialog = document.getElementById('drive-dialog');
   const metadataForm = document.getElementById('metadata-form');
   const busy = new Set();
+  const selectedPaths = new Set();
   let selected = null;
   let page = 1;
   let backupFilter = 'all';
@@ -65,6 +66,9 @@ export const driveScript = String.raw`
     edit.hidden = !row.dataset.name.startsWith('library/');
     edit.setAttribute('aria-label', 'Sửa thông tin ' + original);
     edit.title = 'Sửa thông tin ' + original;
+    const link = row.querySelector('.extension-link');
+    link.hidden = !row.dataset.name.startsWith('vbookext/');
+    link.setAttribute('aria-label', 'Lấy link ' + original);
   }
   function formatBytes(bytes) {
     if (!bytes) return '0 B';
@@ -102,6 +106,41 @@ export const driveScript = String.raw`
     const latest = all.map(row => row.dataset.uploaded).sort().pop();
     document.getElementById('latest-file').textContent = latest ? formatDate(latest) : 'Chưa có tệp';
   }
+  function selectionCheckbox(path) {
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.className = 'item-select';
+    checkbox.dataset.selectPath = path; checkbox.setAttribute('aria-label', 'Chọn ' + path);
+    return checkbox;
+  }
+  function visibleCheckboxes() {
+    return Array.from(filesPanel.querySelectorAll('[data-select-path]')).filter(box => !box.closest('[hidden]'));
+  }
+  function updateSelection() {
+    const boxes = visibleCheckboxes();
+    const visiblePaths = new Set(boxes.map(box => box.dataset.selectPath));
+    for (const path of selectedPaths) if (!visiblePaths.has(path)) selectedPaths.delete(path);
+    for (const box of boxes) {
+      box.checked = selectedPaths.has(box.dataset.selectPath);
+      box.closest('[data-file], .folder-item').classList.toggle('is-selected', box.checked);
+    }
+    const all = document.getElementById('select-visible');
+    all.checked = boxes.length > 0 && selectedPaths.size === boxes.length;
+    all.indeterminate = selectedPaths.size > 0 && selectedPaths.size < boxes.length;
+    all.disabled = !boxes.length;
+    document.getElementById('selection-count').textContent = selectedPaths.size + ' mục đã chọn';
+    document.getElementById('deselect-all').disabled = !selectedPaths.size;
+  }
+  filesPanel.addEventListener('change', event => {
+    const path = event.target.dataset.selectPath;
+    if (path === undefined) return;
+    if (event.target.checked) selectedPaths.add(path); else selectedPaths.delete(path);
+    updateSelection();
+  });
+  document.getElementById('select-visible').addEventListener('change', event => {
+    selectedPaths.clear();
+    if (event.target.checked) visibleCheckboxes().forEach(box => selectedPaths.add(box.dataset.selectPath));
+    updateSelection();
+  });
+  document.getElementById('deselect-all').addEventListener('click', () => { selectedPaths.clear(); updateSelection(); });
   function filterAndSort() {
     const query = normalize(search.value.trim());
     const all = rows();
@@ -126,6 +165,7 @@ export const driveScript = String.raw`
       const name = row.dataset.name;
       const history = name.startsWith('backup-history/');
       row.draggable = !history;
+      if (!row.querySelector('[data-select-path]')) row.querySelector('.file-main').prepend(selectionCheckbox(name));
       const parent = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : 'Thư mục gốc';
       row.querySelector('.file-path').textContent = history ? 'Lịch sử · ' + parent.replace(/^backup-history\/([^/]+)\/?/, (_, stamp) => stamp.replace(/_UTC\+7_.*/, ' (GMT+7)').replace('_', ' ') + ' · ') : parent;
       list.append(row);
@@ -136,6 +176,7 @@ export const driveScript = String.raw`
     document.getElementById('next-page').disabled = page >= pages;
     document.querySelector('.pagination').hidden = pages <= 1;
     const childCount = renderFolderNavigation(query);
+    updateSelection();
     document.getElementById('file-count').textContent = visible;
     document.getElementById('empty-state').hidden = visible > 0 || childCount > 0;
     document.getElementById('empty-title').textContent = all.length ? 'Không tìm thấy tệp phù hợp' : 'Kho lưu trữ đang trống';
@@ -484,7 +525,8 @@ export const driveScript = String.raw`
       uploadInput.value = '';
       updateUploadSelection([]);
       await refreshFiles(true);
-      showToast('Đã tải tệp lên thư viện.');
+      uploadDialog.close();
+      showToast('Đã tải lên ' + files.length + ' tệp.');
     } catch (error) {
       const messages = { '401': 'Phiên đăng nhập không hợp lệ.', '403': 'Không có quyền upload vào đường dẫn này.', '411': 'Trình duyệt không gửi kích thước tệp.', '413': 'Tệp vượt quá giới hạn cho phép.', '507': 'Tài khoản không còn đủ dung lượng.', abort: 'Đã hủy upload.', timeout: 'Upload quá thời gian chờ.', network: 'Mất kết nối khi upload.' };
       uploadStatus.textContent = messages[error.message] || 'Upload thất bại (HTTP ' + error.message + ').';
@@ -494,6 +536,36 @@ export const driveScript = String.raw`
       document.getElementById('start-upload').disabled = false;
     }
   });
+
+  const extensionDialog = document.getElementById('extension-dialog');
+  list.addEventListener('click', async event => {
+    const button = event.target.closest('.extension-link');
+    if (!button) return;
+    button.disabled = true;
+    try {
+      const response = await fetchWithTimeout('/api/extensions', { method: 'POST', headers: { 'X-VBook-Action': 'extensions' } });
+      if (!response.ok) throw new Error('link');
+      const data = await response.json();
+      const path = button.closest('[data-file]').dataset.name.slice('vbookext/'.length);
+      document.getElementById('extension-url').value = data.baseUrl + encodePath(path);
+      extensionDialog.showModal();
+    } catch { showToast('Chưa lấy được link extension. Hãy thử lại.', 'error'); }
+    finally { button.disabled = false; }
+  });
+  document.getElementById('close-extension').onclick = () => extensionDialog.close();
+  document.getElementById('copy-extension').onclick = async () => {
+    const input = document.getElementById('extension-url');
+    try { await navigator.clipboard.writeText(input.value); showToast('Đã sao chép link extension.'); }
+    catch { input.focus(); input.select(); showToast('Hãy sao chép link trong ô đã chọn.'); }
+  };
+  document.getElementById('revoke-extension').onclick = async () => {
+    if (!confirm('Thu hồi tất cả link extension đã tạo? Các link đang dùng trong vBook sẽ ngừng hoạt động.')) return;
+    try {
+      const response = await fetchWithTimeout('/api/extensions', { method: 'DELETE', headers: { 'X-VBook-Action': 'extensions' } });
+      if (!response.ok) throw new Error('revoke');
+      document.getElementById('extension-url').value = ''; extensionDialog.close(); showToast('Đã thu hồi link extension.');
+    } catch { showToast('Chưa thu hồi được link extension.', 'error'); }
+  };
 
   function showConnection(connection) {
     document.getElementById('connection-url').value = connection.url;
@@ -616,10 +688,11 @@ export const driveScript = String.raw`
 
   let draggedPath = null;
   let moving = false;
+  let groupMoving = false;
   const dropTarget = event => event.target.closest('[data-open-folder]');
   filesPanel.addEventListener('dragstart', event => {
     const item = event.target.closest('[data-file], [data-move-source]');
-    if (!item || moving || busy.size) { event.preventDefault(); return; }
+    if (!item || moving || groupMoving || busy.size) { event.preventDefault(); return; }
     const path = item.dataset.moveSource || item.dataset.name;
     if (!path || path.startsWith('backup-history/')) { event.preventDefault(); return; }
     draggedPath = path;
@@ -645,15 +718,35 @@ export const driveScript = String.raw`
     const source = draggedPath;
     const folder = target.dataset.openFolder;
     draggedPath = null; clearDropHighlight();
-    await moveItem(source, folder);
+    await moveSelection(source, folder);
   });
+  async function moveSelection(source, folder) {
+    if (groupMoving || moving) return;
+    const paths = selectedPaths.has(source) ? [...selectedPaths] : [source];
+    // Moving a parent already includes its selected descendants.
+    const roots = paths.filter(path => !paths.some(parent => path.startsWith(parent + '/')));
+    if (roots.some(path => path.startsWith('backup-history/') || folder === path || folder.startsWith(path + '/'))) {
+      showToast('Bỏ chọn lịch sử hoặc thư mục đích trước khi di chuyển nhóm.', 'error'); return;
+    }
+    groupMoving = true;
+    let completed = 0;
+    try {
+      for (const path of roots) {
+        if (!await moveItem(path, folder)) break;
+        selectedPaths.delete(path); completed++;
+      }
+      if (roots.length > 1 && completed) showToast('Đã chuyển ' + completed + '/' + roots.length + ' mục.' + (completed < roots.length ? ' Các mục còn lại chưa chuyển xong; hãy làm mới để kiểm tra.' : ''), completed < roots.length ? 'pending' : undefined);
+    } finally { groupMoving = false; updateSelection(); }
+  }
   async function moveItem(source, folder) {
     const destination = (folder ? folder + '/' : '') + baseName(source);
-    if (moving || source === destination) return;
+    if (moving) return false;
+    if (source === destination) return true;
     if (folder === source || folder.startsWith(source + '/')) {
       showToast('Không thể chuyển thư mục vào chính nó hoặc thư mục con của nó.', 'error'); return;
     }
     moving = true; filesPanel.setAttribute('aria-busy', 'true');
+    let completed = false;
     try {
       const response = await fetchWithTimeout('/webdav/' + encodePath(source), {
         method: 'MOVE', headers: { Destination: new URL('/webdav/' + encodePath(destination), location.origin).href, Overwrite: 'F' }
@@ -661,6 +754,7 @@ export const driveScript = String.raw`
       if (response.status === 202) {
         showToast('Đang chuyển thư mục. Máy chủ sẽ tiếp tục xử lý; bấm Làm mới để kiểm tra.', 'pending');
       } else if (response.ok) {
+        completed = true;
         showToast('Đã chuyển ' + baseName(source) + ' vào ' + (folder || 'thư mục gốc') + '.');
       } else {
         showToast(response.status === 412 ? 'Thư mục đích đã có tệp hoặc thư mục trùng tên.' : response.status === 409 ? 'Không thể chuyển vào thư mục này. Hãy làm mới danh sách.' : 'Chưa chuyển xong. Hãy làm mới danh sách để kiểm tra trước khi thử lại.', 'error');
@@ -669,6 +763,7 @@ export const driveScript = String.raw`
     } catch {
       showToast('Chưa xác nhận được kết quả chuyển. Máy chủ có thể vẫn đang xử lý; hãy làm mới danh sách.', 'pending');
     } finally { moving = false; filesPanel.removeAttribute('aria-busy'); }
+    return completed;
   }
 
   // Long press starts a touch drag; ordinary swipes remain available for scrolling.
@@ -680,7 +775,7 @@ export const driveScript = String.raw`
   }
   filesPanel.addEventListener('touchstart', event => {
     endTouchDrag();
-    if (event.touches.length !== 1 || moving || busy.size || event.target.closest('.file-actions')) return;
+    if (event.touches.length !== 1 || moving || groupMoving || busy.size || event.target.closest('.file-actions, .item-select')) return;
     const item = event.target.closest('[data-file], [data-move-source]');
     const path = item?.dataset.moveSource || item?.dataset.name;
     if (!path || path.startsWith('backup-history/')) return;
@@ -715,14 +810,14 @@ export const driveScript = String.raw`
     const { active, path, target } = touchDrag;
     if (active) { event.preventDefault(); suppressClickUntil = Date.now() + 700; }
     endTouchDrag();
-    if (active && target) void moveItem(path, target.dataset.openFolder);
+    if (active && target) void moveSelection(path, target.dataset.openFolder);
   }, { passive: false });
   filesPanel.addEventListener('touchcancel', endTouchDrag);
   filesPanel.addEventListener('contextmenu', event => { if (touchDrag) event.preventDefault(); });
   filesPanel.addEventListener('click', event => {
     if (Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); }
   }, true);
-  document.addEventListener('keydown', event => { if (event.key === 'Escape') { endTouchDrag(); draggedPath = null; } });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') { endTouchDrag(); draggedPath = null; selectedPaths.clear(); updateSelection(); } });
 
   // Files from the device can be dropped directly on the panel or a destination folder.
   filesPanel.addEventListener('dragover', event => {
@@ -787,7 +882,9 @@ export const driveScript = String.raw`
       const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', 'M3 7V4h6l3 3h9v13H3V7Z'); icon.append(path);
       const label = document.createElement('span'); label.textContent = folderMode ? baseName(folder) : folder;
-      button.append(icon, label); container.append(button);
+      button.append(icon, label);
+      const item = document.createElement('div'); item.className = 'folder-item';
+      item.append(selectionCheckbox(folder), button); container.append(item);
     }
     return children.length;
   }

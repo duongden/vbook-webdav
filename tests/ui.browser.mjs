@@ -98,8 +98,8 @@ test('browser upload stores a library file through the quota-aware PUT path', { 
   await page.getByLabel('Thư mục đích').fill('library/Tiên Hiệp');
   await page.locator('#upload-files').setInputFiles({ name: 'Sách mới.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('epub-data') });
   await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
-  await waitText(page, 'upload-status', 'Đã tải lên 1 tệp');
-  await waitText(page, 'toast-message', 'Đã tải tệp lên thư viện');
+  await waitText(page, 'toast-message', 'Đã tải lên 1 tệp');
+  assert.equal(await page.locator('#upload-dialog').evaluate(dialog => dialog.open), false);
   assert.equal(await (await bucket.get(`${username}/library/Tiên Hiệp/Sách mới.epub`)).text(), 'epub-data');
   assert.equal(await page.locator('[data-file][data-name="library/Tiên Hiệp/Sách mới.epub"]').count(), 1);
 });
@@ -119,7 +119,7 @@ test('drag and drop selects and uploads multiple library files', { timeout: 2000
   await waitText(page, 'upload-selection', '2 tệp');
   await waitText(page, 'upload-status', 'Đã nhận 2 tệp');
   await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
-  await waitText(page, 'upload-status', 'Đã tải lên 2 tệp');
+  await waitText(page, 'toast-message', 'Đã tải lên 2 tệp');
   assert.equal(await (await bucket.get(`${username}/library/Kéo thả/Một.epub`)).text(), 'first');
   assert.equal(await (await bucket.get(`${username}/library/Kéo thả/Hai.pdf`)).text(), 'second');
 });
@@ -404,7 +404,7 @@ test('many backups paginate and filter history while preserving search and manua
   assert.equal(await page.getByLabel('Thư mục đích').inputValue(), 'vbookext/demo/src');
   await page.locator('#upload-files').setInputFiles({ name: 'home.js', mimeType: 'text/javascript', buffer: Buffer.from('function execute() {}') });
   await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
-  await waitText(page, 'upload-status', 'Đã tải lên 1 tệp');
+  await waitText(page, 'toast-message', 'Đã tải lên 1 tệp');
   assert.equal(await (await bucket.get(username + '/vbookext/demo/src/home.js')).text(), 'function execute() {}');
   assert.equal(await bucket.head(username + '/library/vbookext/demo/src/home.js'), null);
  });
@@ -489,9 +489,50 @@ for (const layout of ['list', 'grid']) test(layout + ': touch folder drag and di
   await target.dispatchEvent('drop', { dataTransfer: transfer });
   assert.equal(await page.getByLabel('Thư mục đích').inputValue(), 'target');
   await page.getByRole('button', { name: 'Tải lên', exact: true }).click();
-  await waitText(page, 'upload-status', 'Đã tải lên 1 tệp');
+  await waitText(page, 'toast-message', 'Đã tải lên 1 tệp');
   assert.equal(await (await bucket.get(username + '/target/device.txt')).text(), 'device');
-  await page.getByRole('button', { name: 'Đóng', exact: true }).click();
+  assert.equal(await page.locator('#upload-dialog').evaluate(dialog => dialog.open), false);
   assert.equal(await page.locator('.files-panel').getAttribute('data-layout'), layout);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
+for (const layout of ['list', 'grid']) test(layout + ': multiple selection, deselect and group moves keep folder contents together', async t => {
+  const { page, username } = await openDrive(t, { width: 390, height: 1100, files: [
+    { name: 'one.txt', size: 3 }, { name: 'source/plugin.json', size: 5 }, { name: 'target/keep.txt', size: 7 }
+  ] });
+  await page.getByRole('button', { name: layout === 'grid' ? 'Dạng lưới' : 'Danh sách chi tiết', exact: true }).click();
+  await page.getByLabel('Chọn tất cả đang hiển thị', { exact: true }).check();
+  assert.equal(await page.locator('[data-select-path]:checked').count(), 5);
+  await page.getByRole('button', { name: 'Bỏ chọn', exact: true }).click();
+  assert.equal(await page.locator('[data-select-path]:checked').count(), 0);
+  await page.getByLabel('Chọn one.txt', { exact: true }).check();
+  await page.getByLabel('Chọn source', { exact: true }).check();
+  await page.getByLabel('Chọn source/plugin.json', { exact: true }).check();
+  assert.equal(await page.getByLabel('Chọn tất cả đang hiển thị').evaluate(el => el.indeterminate), true);
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click();
+  await waitText(page, 'sync-note', 'Vừa cập nhật');
+  assert.equal(await page.locator('[data-select-path]:checked').count(), 3);
+  await page.locator('[data-file][data-name="one.txt"]').dragTo(page.getByRole('button', { name: 'Mở thư mục target', exact: true }));
+  await waitText(page, 'toast-message', 'Đã chuyển 2/2 mục');
+  assert.ok(await bucket.head(username + '/target/one.txt'));
+  assert.ok(await bucket.head(username + '/target/source/plugin.json'));
+  assert.equal(await bucket.head(username + '/source/plugin.json'), null);
+  await page.getByLabel('Chọn target/one.txt', { exact: true }).check();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('[data-select-path]:checked').count(), 0);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
+test('extension link action survives refresh and revokes the generated URL', async t => {
+  const { page } = await openDrive(t, { files: [{ name: 'vbookext/plugin.json', size: 12 }] });
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click();
+  await waitText(page, 'sync-note', 'Vừa cập nhật');
+  await page.getByRole('button', { name: 'Lấy link plugin.json', exact: true }).click();
+  await page.locator('#extension-dialog').waitFor({ state: 'visible' });
+  const link = await page.getByLabel('Link tệp', { exact: true }).inputValue();
+  assert.match(link, /\/extensions\/[^/]+\/[A-Za-z0-9_-]{43}\/plugin.json$/);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Thu hồi link', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã thu hồi link extension');
+  assert.equal(await page.locator('#extension-dialog').evaluate(dialog => dialog.open), false);
 });
