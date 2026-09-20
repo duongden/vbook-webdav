@@ -607,3 +607,42 @@ test('extension links serve only vbookext files without login and can be revoked
   await kv.put('user:' + name, JSON.stringify({ ...account, status: 'suspended' }));
   assert.equal((await mf.dispatchFetch(next.baseUrl + 'plugin.json')).status, 404);
 });
+
+test('extension repository rewrites internal package URLs and icons without altering external sources or stored JSON', async () => {
+  const name = await user('extension_manifest');
+  const manifest = { metadata: { author: 'Demo' }, data: [
+    { name: 'Relative', path: '../demo/plugin.zip', icon: '../demo/icon.png', source: 'https://novel.example' },
+    { name: 'WebDAV', path: 'https://test.local/webdav/vbookext/demo/plugin.zip' },
+    { name: 'Root', path: 'vbookext/demo/plugin.zip' },
+    { name: 'External', path: 'https://example.org/plugin.zip', icon: '//example.org/icon.png' },
+    { name: 'Invalid', path: '../../../library/private.zip' }
+  ] };
+  const original = JSON.stringify(manifest);
+  await bucket.put(name + '/vbookext/repo/plugin.json', original);
+  await bucket.put(name + '/vbookext/demo/plugin.zip', 'zip-data');
+  await bucket.put(name + '/vbookext/demo/icon.png', 'icon-data');
+  const { baseUrl } = await (await request(name, '/api/extensions', 'POST', undefined, { 'X-VBook-Action': 'extensions' })).json();
+  await bucket.put(name + '/vbookext/plugin.json', JSON.stringify({ data: [{ name: 'Qimao', path: 'qimao/plugin.zip' }] }));
+  await bucket.put(name + '/vbookext/qimao/plugin.zip', 'qimao-package');
+  const rootManifest = await (await mf.dispatchFetch(baseUrl + 'plugin.json')).json();
+  assert.equal(rootManifest.data[0].path, baseUrl + 'qimao/plugin.zip');
+  assert.equal(await (await mf.dispatchFetch(rootManifest.data[0].path)).text(), 'qimao-package');
+  const response = await mf.dispatchFetch(baseUrl + 'repo/plugin.json');
+  assert.match(response.headers.get('Content-Type'), /application\/json/);
+  const text = await response.text();
+  const result = JSON.parse(text);
+  for (const entry of result.data.slice(0, 3)) {
+    assert.equal(entry.path, baseUrl + 'demo/plugin.zip');
+    assert.equal(await (await mf.dispatchFetch(entry.path)).text(), 'zip-data');
+  }
+  assert.equal(await (await mf.dispatchFetch(result.data[0].icon)).text(), 'icon-data');
+  assert.equal(result.data[0].source, 'https://novel.example');
+  assert.deepEqual(result.data[3], manifest.data[3]);
+  assert.equal(result.data[4].path, manifest.data[4].path);
+  assert.equal(await (await bucket.get(name + '/vbookext/repo/plugin.json')).text(), original);
+  const head = await mf.dispatchFetch(baseUrl + 'repo/plugin.json', { method: 'HEAD' });
+  assert.equal(Number(head.headers.get('Content-Length')), Buffer.byteLength(text));
+  assert.equal(await head.text(), '');
+  await request(name, '/api/extensions', 'DELETE', undefined, { 'X-VBook-Action': 'extensions' });
+  assert.equal((await mf.dispatchFetch(result.data[0].path)).status, 404);
+});

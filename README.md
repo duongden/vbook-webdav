@@ -81,7 +81,9 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 2. Bấm icon liên kết có tooltip **Lấy link extension** ở hàng tệp `plugin.json`.
 3. Chọn **Sao chép**, rồi dán link vào phần thêm nguồn tương ứng trong vBook.
 
-Link cho phép tải không cần nhập mật khẩu WebDAV. Ai có mã trong link có thể tải tệp trong `vbookext`; các thư mục khác vẫn riêng tư. Các link dùng chung mã để hỗ trợ tệp đi kèm theo đường dẫn tương đối. Nếu cấu hình dùng URL tuyệt đối, bạn cần sửa chúng sang link đúng của từng tệp; nút lấy link cũng có trên các tệp khác trong `vbookext`.
+Link cho phép tải không cần nhập mật khẩu WebDAV. Ai có mã trong link có thể tải tệp trong `vbookext`; các thư mục khác vẫn riêng tư. Khi phục vụ JSON kho nguồn có mảng `data`, máy chủ tự chuyển các trường `path` và `icon` nội bộ thành URL chia sẻ đầy đủ. Đường dẫn tương đối được tính từ thư mục chứa JSON; đường dẫn `vbookext/...` và URL WebDAV cùng máy chủ cũng được hỗ trợ. URL bên ngoài và trường `source` giữ nguyên. File JSON gốc không bị chỉnh sửa.
+
+Ví dụ: với `vbookext/plugin.json` và `vbookext/qimao/plugin.zip`, đặt `"path": "qimao/plugin.zip"` trong mục Qimao thuộc mảng `data`. Nếu có icon, dùng `"icon": "qimao/icon.png"`. Không dùng `"path": "plugin.zip"` trừ khi gói ZIP nằm cùng thư mục với JSON.
 
 `plugin.json` phải đúng định dạng nguồn mà phiên bản vBook của bạn hỗ trợ; chức năng này cung cấp link tải, không tự chuyển manifest extension thành danh sách kho nguồn. Chọn **Thu hồi link** trong popup để vô hiệu hóa toàn bộ link extension đã cấp. Lần lấy link tiếp theo sẽ tạo mã mới và cần cập nhật lại trong vBook.
 
