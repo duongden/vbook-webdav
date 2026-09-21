@@ -7,6 +7,7 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const DRIVE_ID = /^[A-Za-z0-9_-]{10,100}$/;
 const MAX_DEPTH = 24;
 const MAX_PAGES = 10;
+const MAX_CONNECTIONS = 20;
 
 interface DriveItem {
   id: string;
@@ -43,7 +44,7 @@ export function extractDriveFolderId(input: string): string | null {
   return id && DRIVE_ID.test(id) ? id : null;
 }
 
-interface DriveConfig { folderId: string; encryptedKey: string }
+interface DriveConfig { id: string; label: string; folderId: string; encryptedKey: string; createdAt: number }
 function driveFolderUrl(folderId: string): string { return `https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}`; }
 function vaultSecret(c: Context<AppEnv>): string { return c.env.DRIVE_VAULT_KEY || c.env.ADMIN_SESSION_SECRET || ''; }
 async function vaultKey(c: Context<AppEnv>): Promise<string> {
@@ -52,16 +53,16 @@ async function vaultKey(c: Context<AppEnv>): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('vbook-drive-v1:' + secret));
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
 }
-function configRequest(c: Context<AppEnv>, action: string, config?: DriveConfig): Promise<Response> {
+function configRequest(c: Context<AppEnv>, action: string, body?: unknown): Promise<Response> {
   const username = c.get('username');
   return c.env.USER_STORAGE.get(c.env.USER_STORAGE.idFromName(`user:${username}`)).fetch(`https://storage.internal/drive-${action}`, {
-    method: 'POST', headers: { 'X-Storage-User': username, 'Content-Type': 'application/json' }, body: config ? JSON.stringify(config) : undefined,
+    method: 'POST', headers: { 'X-Storage-User': username, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
-async function readConfig(c: Context<AppEnv>): Promise<DriveConfig | null> {
-  const response = await configRequest(c, 'get');
+async function readConfigs(c: Context<AppEnv>): Promise<DriveConfig[]> {
+  const response = await configRequest(c, 'list');
   if (!response.ok) throw new Error('Storage unavailable');
-  return response.json<DriveConfig | null>();
+  return response.json<DriveConfig[]>();
 }
 async function unlock(c: Context<AppEnv>, config: DriveConfig): Promise<string> {
   return decryptPassword(await vaultKey(c), 'drive:' + c.get('username'), config.encryptedKey);
@@ -158,12 +159,24 @@ function propResponse(item: DriveItem, href: string, displayName: string): strin
 }
 
 async function driveWebDavHandler(c: Context<AppEnv>): Promise<Response> {
-  const config = await readConfig(c);
-  if (!config) return c.text('Connect your Google Drive API key first', 404);
+  const configs = await readConfigs(c);
+  if (!configs.length) return c.text('Connect your Google Drive API key first', 404);
+  const parsedSegments = drivePath(c.req.url);
+  if (!parsedSegments) return c.text('Forbidden', 403);
+  const segments = [...parsedSegments];
+  let config = configs[0];
+  const selected = segments.length ? configs.find(item => item.id === segments[0]) : undefined;
+  const routePrefix: string[] = [];
+  if (selected) {
+    config = selected;
+    const connectionId = segments.shift() as string;
+    routePrefix.push(connectionId);
+    // Ktor can prepend the full configured connection URL to an absolute href.
+    // Collapse any repeated /drive-webdav/{connectionId}/ pairs.
+    while (segments[0] === 'drive-webdav' && segments[1] === connectionId) segments.splice(0, 2);
+  }
   const folderId = config.folderId;
   c.set('driveApiKey', await unlock(c, config));
-  const segments = drivePath(c.req.url);
-  if (!segments) return c.text('Forbidden', 403);
   const method = c.req.method;
   if (method === 'OPTIONS') return c.text('', 200, { Allow: 'OPTIONS, GET, HEAD, PROPFIND', DAV: '1' });
   if (!['GET', 'HEAD', 'PROPFIND'].includes(method)) return c.text('Method Not Allowed', 405, { Allow: 'OPTIONS, GET, HEAD, PROPFIND' });
@@ -179,8 +192,8 @@ async function driveWebDavHandler(c: Context<AppEnv>): Promise<Response> {
     // Preserve the request spelling for the self entry. Some clients identify
     // it by exact href equality and otherwise show it again as a child folder.
     const selfHref = new URL(c.req.url).pathname;
-    xml += propResponse(item, selfHref, segments.at(-1) || 'Google Drive');
-    if (directory) c.header('Content-Location', itemHref(segments, true));
+    xml += propResponse(item, selfHref, segments.at(-1) || config.label);
+    if (directory) c.header('Content-Location', itemHref([...routePrefix, ...segments], true));
     if (depth === '1' && directory) {
       const children = await listFolder(c, item.id);
       if (children instanceof Response) return children;
@@ -188,7 +201,7 @@ async function driveWebDavHandler(c: Context<AppEnv>): Promise<Response> {
       for (const child of children) {
         if (names.has(child.name)) return c.text('Duplicate names in Google Drive folder', 409);
         names.add(child.name);
-        xml += propResponse(child, itemHref([...segments, child.name], child.mimeType === FOLDER_MIME), child.name);
+        xml += propResponse(child, itemHref([...routePrefix, ...segments, child.name], child.mimeType === FOLDER_MIME), child.name);
       }
     }
     c.header('Content-Type', 'application/xml; charset=utf-8');
@@ -223,12 +236,18 @@ const onError = (_error: Error, c: Context<AppEnv>) => c.json({ error: 'Không �
 driveConfigApi.onError(onError);
 driveWebDavApp.onError(onError);
 
+function publicConnection(c: Context<AppEnv>, config: DriveConfig) {
+  const origin = new URL(c.req.url).origin;
+  return { id: config.id, label: config.label, folderUrl: driveFolderUrl(config.folderId), url: `${origin}/drive-webdav/${encodeURIComponent(config.id)}/`, createdAt: config.createdAt };
+}
+
 driveConfigApi.get('/', async c => {
-  const config = await readConfig(c);
-  return c.json({ configured: Boolean(config), available: vaultSecret(c).length >= 32, hasApiKey: Boolean(config), url: `${new URL(c.req.url).origin}/drive-webdav/`, folderUrl: config ? driveFolderUrl(config.folderId) : null });
+  const configs = await readConfigs(c);
+  const first = configs[0];
+  return c.json({ configured: configs.length > 0, available: vaultSecret(c).length >= 32, hasApiKey: configs.length > 0, url: `${new URL(c.req.url).origin}/drive-webdav/`, folderUrl: first ? driveFolderUrl(first.folderId) : null, connections: configs.map(config => publicConnection(c, config)), limit: MAX_CONNECTIONS });
 });
 
-driveConfigApi.put('/', async c => {
+async function addDriveConnection(c: Context<AppEnv>): Promise<Response> {
   if (!sameOrigin(c)) return c.text('Forbidden', 403);
   if (vaultSecret(c).length < 32) return c.json({ error: 'Máy chủ chưa bật lưu khóa an toàn. Liên hệ người vận hành; không gửi API key cho admin.' }, 503);
   let body: unknown;
@@ -237,23 +256,34 @@ driveConfigApi.put('/', async c => {
   const input = body as Record<string, unknown>;
   const folderId = typeof input.url === 'string' ? extractDriveFolderId(input.url) : null;
   if (!folderId) return c.json({ error: 'Link thư mục Google Drive không hợp lệ.' }, 400);
-  const stored = await readConfig(c);
-  let key = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
-  if (!key && stored) key = await unlock(c, stored);
+  const key = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
   if (!/^[A-Za-z0-9_-]{20,256}$/.test(key)) return c.json({ error: 'Hãy nhập Google Drive API key của bạn.' }, 400);
   c.set('driveApiKey', key);
   const metadata = await folderMetadata(c, folderId);
   if (metadata instanceof Response) return c.json({ error: 'Không đọc được Drive. Kiểm tra API key, bật Google Drive API và quyền chia sẻ thư mục.' }, metadata.status === 404 ? 400 : metadata.status as 429 | 503);
   if (metadata.mimeType !== FOLDER_MIME) return c.json({ error: 'Link phải trỏ tới một thư mục Google Drive.' }, 400);
   const encryptedKey = await encryptPassword(await vaultKey(c), 'drive:' + c.get('username'), key);
-  const response = await configRequest(c, 'set', { folderId, encryptedKey });
+  const config: DriveConfig = { id: crypto.randomUUID().replace(/-/g, ''), label: metadata.name.slice(0, 120), folderId, encryptedKey, createdAt: Date.now() };
+  const response = await configRequest(c, 'add', config);
+  if (response.status === 409) return c.json({ error: 'Thư mục Drive này đã được liên kết.' }, 409);
+  if (response.status === 507) return c.json({ error: `Mỗi tài khoản chỉ được liên kết tối đa ${MAX_CONNECTIONS} thư mục Drive.` }, 507);
   if (!response.ok) return c.json({ error: 'Không lưu được kết nối Drive.' }, 503);
-  return c.json({ configured: true, url: `${new URL(c.req.url).origin}/drive-webdav/`, folderUrl: driveFolderUrl(folderId) });
-});
+  return c.json({ configured: true, connection: publicConnection(c, config) });
+}
+
+driveConfigApi.post('/', addDriveConnection);
+driveConfigApi.put('/', addDriveConnection);
 
 driveConfigApi.delete('/', async c => {
   if (!sameOrigin(c)) return c.text('Forbidden', 403);
-  const response = await configRequest(c, 'delete');
+  let body: unknown;
+  try { body = await c.req.json(); } catch { body = {}; }
+  const input = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
+  let id = typeof input.id === 'string' ? input.id : '';
+  if (!id) id = (await readConfigs(c))[0]?.id || '';
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(id)) return c.json({ error: 'Kết nối Drive không hợp lệ.' }, 400);
+  const response = await configRequest(c, 'remove', { id });
+  if (response.status === 404) return c.json({ error: 'Không tìm thấy kết nối Drive.' }, 404);
   if (!response.ok) return c.json({ error: 'Không ngắt được kết nối Drive.' }, 503);
   return new Response(null, { status: 204 });
 });

@@ -7,7 +7,10 @@ const RETRY_MS = 30_000;
 const DELETE_PAGES = 20;
 const SHARE_ID = /^[A-Za-z0-9_-]{20,64}$/;
 const MAX_SHARES = 100;
+const DRIVE_CONFIG_ID = /^[A-Za-z0-9_-]{8,64}$/;
+const MAX_DRIVE_CONFIGS = 20;
 interface MoveJob { source: string; destination: string; directory: boolean; usage: number; current?: string }
+interface DriveConfigRecord { id: string; label: string; folderId: string; encryptedKey: string; createdAt: number }
 
 
 /** One instance per user: serialize R2 mutations and the durable usage counter. */
@@ -67,7 +70,7 @@ export class UserStorage {
       await this.state.storage.put('disabled', true);
       return new Response(null, { status: 204 });
     }
-    if (action !== '/retire' && action !== '/drive-delete' && await this.state.storage.get<boolean>('disabled')) {
+    if (action !== '/retire' && action !== '/drive-delete' && action !== '/drive-remove' && await this.state.storage.get<boolean>('disabled')) {
       return new Response('Account storage is disabled', { status: 403 });
     }
 
@@ -101,13 +104,36 @@ export class UserStorage {
     }
     if (action === '/drive-get') return Response.json(await this.state.storage.get('drive-config') || null);
     if (action === '/drive-delete') {
-      await this.state.storage.delete('drive-config');
+      await this.state.storage.delete(['drive-config', 'drive-configs']);
       return new Response(null, { status: 204 });
     }
     if (action === '/drive-set') {
       const config = await request.json<{ folderId: string; encryptedKey: string }>();
       if (!/^[A-Za-z0-9_-]{10,100}$/.test(config.folderId) || typeof config.encryptedKey !== 'string' || config.encryptedKey.length > 2048) return new Response('Invalid config', { status: 400 });
       await this.state.storage.put('drive-config', config);
+      await this.state.storage.delete('drive-configs');
+      return new Response(null, { status: 204 });
+    }
+    if (action === '/drive-list') return Response.json(await this.driveConfigs());
+    if (action === '/drive-add') {
+      const config = await request.json<DriveConfigRecord>();
+      if (!validDriveConfig(config)) return new Response('Invalid config', { status: 400 });
+      const configs = await this.driveConfigs();
+      if (configs.length >= MAX_DRIVE_CONFIGS) return new Response('Too many Drive connections', { status: 507 });
+      if (configs.some(item => item.id === config.id || item.folderId === config.folderId)) return new Response('Drive connection already exists', { status: 409 });
+      configs.push(config);
+      await this.state.storage.put('drive-configs', configs);
+      await this.state.storage.delete('drive-config');
+      return new Response(null, { status: 204 });
+    }
+    if (action === '/drive-remove') {
+      const input = await request.json<{ id: string }>();
+      if (!DRIVE_CONFIG_ID.test(input.id)) return new Response('Invalid config id', { status: 400 });
+      const configs = await this.driveConfigs();
+      const remaining = configs.filter(config => config.id !== input.id);
+      if (remaining.length === configs.length) return new Response('Not Found', { status: 404 });
+      await this.state.storage.put('drive-configs', remaining);
+      await this.state.storage.delete('drive-config');
       return new Response(null, { status: 204 });
     }
     if (action.startsWith('/share-')) return this.handleShare(action, request);
@@ -124,7 +150,7 @@ export class UserStorage {
       if (action === '/retire') {
         await this.state.storage.put('disabled', true);
         await this.state.storage.delete(['extension-token', 'extension-short-token']);
-        await this.state.storage.delete('drive-config');
+        await this.state.storage.delete(['drive-config', 'drive-configs']);
         const shares = await this.state.storage.list<WebDavShare>({ prefix: 'share:' });
         if (shares.size) await this.state.storage.delete([...shares.keys()]);
       }
@@ -235,6 +261,16 @@ export class UserStorage {
       // A process crash can leave an extra history copy; dirty accounting recovers it.
       if (!committed && historyKey) await this.env.STORAGE_R2.delete(historyKey);
     }
+  }
+
+  private async driveConfigs(): Promise<DriveConfigRecord[]> {
+    const stored = await this.state.storage.get<DriveConfigRecord[]>('drive-configs');
+    if (Array.isArray(stored)) return stored.filter(validDriveConfig).slice(0, MAX_DRIVE_CONFIGS);
+    const legacy = await this.state.storage.get<{ folderId: string; encryptedKey: string }>('drive-config');
+    if (!legacy || !/^[A-Za-z0-9_-]{10,100}$/.test(legacy.folderId) || typeof legacy.encryptedKey !== 'string') return [];
+    const migrated: DriveConfigRecord = { id: 'legacy', label: 'Google Drive', folderId: legacy.folderId, encryptedKey: legacy.encryptedKey, createdAt: 0 };
+    await this.state.storage.put('drive-configs', [migrated]);
+    return [migrated];
   }
 
   private async handleShare(action: string, request: Request): Promise<Response> {
@@ -442,6 +478,16 @@ function constantTimeEqual(a: string, b: string): boolean {
     diff |= (a.charCodeAt(index) || 0) ^ (b.charCodeAt(index) || 0);
   }
   return diff === 0;
+}
+
+function validDriveConfig(value: unknown): value is DriveConfigRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const config = value as Record<string, unknown>;
+  return typeof config.id === 'string' && DRIVE_CONFIG_ID.test(config.id)
+    && typeof config.label === 'string' && config.label.length > 0 && config.label.length <= 120 && !/[\x00-\x1f\x7f]/.test(config.label)
+    && typeof config.folderId === 'string' && /^[A-Za-z0-9_-]{10,100}$/.test(config.folderId)
+    && typeof config.encryptedKey === 'string' && config.encryptedKey.length > 0 && config.encryptedKey.length <= 2048
+    && typeof config.createdAt === 'number' && Number.isSafeInteger(config.createdAt) && config.createdAt >= 0;
 }
 
 function validateBookMetadata(value: unknown): BookMetadata | null {

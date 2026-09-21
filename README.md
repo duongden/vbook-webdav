@@ -183,14 +183,15 @@ Ví dụ, nếu tài khoản có Max File 50 MB thì không thể upload file 60
 
 ## Dùng thư mục Google Drive qua WebDAV
 
-Mỗi user sử dụng Google Drive API key riêng. Bạn tự nhập key trong hộp **Drive**; key được mã hóa khi lưu và không hiển thị lại trên web hoặc trang admin.
+Mỗi user có thể liên kết tối đa 20 thư mục Google Drive công khai. Mỗi kết nối dùng API key do user nhập; key được mã hóa riêng, không hiển thị lại trên web hoặc trang admin.
 
 1. Trong Google Drive, mở phần chia sẻ của thư mục sách.
 2. Chọn **Bất kỳ ai có đường liên kết** và quyền **Người xem**.
 3. Trên trang quản lý file, chọn nút **Drive**.
-4. Dán link thư mục, nhập **Google Drive API key của bạn**, rồi chọn **Liên kết**.
-5. Sao chép URL WebDAV chỉ đọc được hiển thị.
+4. Dán link thư mục, nhập **Google Drive API key cho thư mục này**, rồi chọn **Thêm liên kết**.
+5. Trong danh sách kết nối, sao chép URL WebDAV chỉ đọc của đúng thư mục.
 6. Trong VBook hoặc Legado, thêm URL đó cùng username và password tài khoản hiện tại.
+7. Lặp lại các bước trên để thêm nguồn Drive khác. Mỗi nguồn có URL WebDAV riêng và có thể dùng API key khác.
 
 <img src="docs/images/drive-dialog.png" alt="Hộp liên kết thư mục Google Drive và URL WebDAV chỉ đọc" width="620">
 
@@ -198,7 +199,7 @@ Kết nối này cho phép duyệt thư mục và tải file. Bạn không thể
 
 Các file thông thường như EPUB, PDF, CBZ và TXT được hiển thị. Tài liệu Google Docs/Sheets/Slides chưa được xuất tự động; hãy tải chúng thành file thông thường trước khi đặt vào thư mục sách. Không đặt hai file hoặc thư mục trùng tên trong cùng một thư mục Drive.
 
-Nút **Ngắt liên kết** chỉ gỡ thư mục khỏi tài khoản WebDAV; file gốc trong Google Drive không bị xóa. Nếu Drive báo không tìm thấy thư mục, hãy kiểm tra lại quyền chia sẻ hoặc liên hệ người quản trị.
+Nút **Ngắt** của từng kết nối chỉ gỡ thư mục đó khỏi tài khoản WebDAV; các kết nối khác và file gốc trong Google Drive không bị ảnh hưởng. Kết nối một thư mục đã tồn tại lần nữa sẽ bị từ chối để tránh trùng lặp.
 
 ### Cách lấy Google Drive API key
 
@@ -207,11 +208,11 @@ Nút **Ngắt liên kết** chỉ gỡ thư mục khỏi tài khoản WebDAV; fi
 3. Mở **APIs & Services → Library**, tìm **Google Drive API**, bấm **Enable / Bật**. Kiểm tra đúng project đang được chọn. [Hướng dẫn bật API của Google](https://developers.google.com/workspace/guides/enable-apis).
 4. Mở [Credentials / Thông tin xác thực](https://console.cloud.google.com/apis/credentials) → **Create credentials → API key**. Đặt tên dễ nhớ, ví dụ `WebDAV ca nhan`. Nếu form yêu cầu chọn API ngay lúc tạo, chọn **Google Drive API**.
 5. Mở cấu hình key. Trong **API restrictions**, chọn **Restrict key → Google Drive API** rồi **Save**. Với máy chủ WebDAV này, **Application restrictions** chọn **None**; giới hạn **Websites** chỉ phù hợp khi gọi từ trình duyệt. [Hướng dẫn giới hạn API key của Google](https://docs.cloud.google.com/docs/authentication/api-keys).
-6. Bấm **Show key / Hiện khóa** hoặc nút sao chép. Quay lại trang WebDAV → **Drive**, dán vào ô **Google Drive API key của bạn**, rồi **Liên kết**. Đây là API key, không phải OAuth Client ID hoặc Client Secret. [Hướng dẫn tạo key của Google](https://developers.google.com/workspace/guides/create-credentials#api-key).
+6. Bấm **Show key / Hiện khóa** hoặc nút sao chép. Quay lại trang WebDAV → **Drive**, dán vào ô **Google Drive API key cho thư mục này**, rồi **Thêm liên kết**. Đây là API key, không phải OAuth Client ID hoặc Client Secret. [Hướng dẫn tạo key của Google](https://developers.google.com/workspace/guides/create-credentials#api-key).
 
 Key không tự cấp quyền đọc thư mục riêng tư: thư mục vẫn cần chia sẻ **Bất kỳ ai có đường liên kết – Người xem**. Không đưa key vào link thư mục, URL WebDAV hoặc ảnh chụp gửi cho người khác.
 
-Khi đã liên kết, để trống ô key để giữ key cũ khi cập nhật thư mục. Muốn đổi key, nhập key mới và bấm **Liên kết**. **Ngắt liên kết** xóa key đã lưu của tài khoản. Khi admin đặt lại mật khẩu, bạn cần liên kết Drive lại bằng key của mình.
+Mỗi lần thêm thư mục cần nhập API key cho kết nối đó. **Ngắt** sẽ xóa key đã lưu của riêng kết nối được chọn. Khi admin đặt lại mật khẩu, toàn bộ kết nối Drive của user bị xóa và user cần liên kết lại bằng các key của mình.
 
 Nếu không thấy **Google Drive API** trong danh sách giới hạn, kiểm tra đã bật API tại bước 3 trong cùng project. Nếu báo không đọc được Drive, kiểm tra key đã sao chép đầy đủ, API đã bật, key được giới hạn đúng API và thư mục cho phép xem bằng liên kết.
 

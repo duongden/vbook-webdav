@@ -153,30 +153,59 @@ test('Google Drive dialog explains the independent read-only WebDAV connection',
   await page.route('**/api/drive', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ configured: true, available: true, url: 'https://library.example/drive-webdav/', folderUrl: 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345' }),
+    body: JSON.stringify({ configured: true, available: true, url: 'https://library.example/drive-webdav/', folderUrl: 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345', limit: 20, connections: [
+      { id: 'connection123', label: 'Books', folderUrl: 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345', url: 'https://library.example/drive-webdav/connection123/', createdAt: 1 },
+      { id: 'connection456', label: 'Public Library', folderUrl: 'https://drive.google.com/drive/folders/SECOND_FOLDER_12345', url: 'https://library.example/drive-webdav/connection456/', createdAt: 2 },
+    ] }),
   }));
   await page.getByRole('button', { name: 'Liên kết Google Drive', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Google Drive qua WebDAV' });
-  await dialog.getByText('Đã liên kết một thư mục Google Drive.').waitFor();
-  assert.equal(await page.getByLabel('URL WebDAV chỉ đọc').inputValue(), 'https://library.example/drive-webdav/');
-  assert.equal(await page.getByLabel('Link thư mục Google Drive').inputValue(), 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
-  assert.equal(await page.getByRole('link', { name: 'Mở thư mục Google Drive đã liên kết' }).getAttribute('href'), 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
-  assert.equal(await page.getByLabel('Google Drive API key của bạn').getAttribute('type'), 'password');
+  await dialog.getByText('Đã liên kết 2/20 thư mục Google Drive.').waitFor();
+  await dialog.getByText('Books', { exact: true }).waitFor();
+  await dialog.getByText('Public Library', { exact: true }).waitFor();
+  assert.equal(await dialog.getByText('https://library.example/drive-webdav/connection123/', { exact: true }).count(), 1);
+  assert.equal(await dialog.getByRole('link', { name: 'Mở Google Drive' }).first().getAttribute('href'), 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
+  assert.equal(await page.getByLabel('Google Drive API key cho thư mục này').getAttribute('type'), 'password');
   await dialog.getByText('Cách lấy Google Drive API key', { exact: true }).click();
   await dialog.getByText('Sao chép key vào ô phía trên.', { exact: false }).waitFor();
   await dialog.getByText('Cách lấy Google Drive API key', { exact: true }).click();
   await dialog.screenshot({ path: '/tmp/vbook-drive-dialog.png' });
 });
 
-test('invalid Google Drive credentials show an unobstructed inline error', async t => {
-  const { page } = await openDrive(t, { files: [], width: 390, height: 740 });
-  await page.route('**/api/drive', route => route.request().method() === 'PUT'
-    ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Link thư mục hoặc API key không hợp lệ.' }) })
-    : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true, configured: false, url: '' }) }));
+test('user adds and removes independent Google Drive connections', async t => {
+  const { page } = await openDrive(t, { files: [] });
+  let connections = [];
+  await page.route('**/api/drive', async route => {
+    const method = route.request().method();
+    if (method === 'POST') connections = [{ id: 'connection123', label: 'Books', folderUrl: 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345', url: 'https://library.example/drive-webdav/connection123/', createdAt: 1 }];
+    if (method === 'DELETE') connections = [];
+    await route.fulfill({
+      status: method === 'DELETE' ? 204 : 200,
+      contentType: 'application/json',
+      body: method === 'POST' ? JSON.stringify({ configured: true, connection: connections[0] }) : method === 'DELETE' ? '' : JSON.stringify({ configured: connections.length > 0, available: true, url: 'https://library.example/drive-webdav/', folderUrl: connections[0]?.folderUrl || null, connections, limit: 20 }),
+    });
+  });
   await page.getByRole('button', { name: 'Liên kết Google Drive', exact: true }).click();
   await page.getByLabel('Link thư mục Google Drive').fill('https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
-  await page.getByLabel('Google Drive API key của bạn').fill('invalid-test-key');
-  await page.getByRole('button', { name: 'Liên kết', exact: true }).click();
+  await page.getByLabel('Google Drive API key cho thư mục này').fill('test-drive-key-user-123456');
+  await page.getByRole('button', { name: 'Thêm liên kết', exact: true }).click();
+  await page.getByText('https://library.example/drive-webdav/connection123/', { exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Link thư mục Google Drive').inputValue(), '');
+  assert.equal(await page.getByLabel('Google Drive API key cho thư mục này').inputValue(), '');
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Ngắt liên kết Books', exact: true }).click();
+  await page.getByText('Chưa có thư mục Google Drive nào được liên kết.', { exact: true }).waitFor();
+});
+
+test('invalid Google Drive credentials show an unobstructed inline error', async t => {
+  const { page } = await openDrive(t, { files: [], width: 390, height: 740 });
+  await page.route('**/api/drive', route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Link thư mục hoặc API key không hợp lệ.' }) })
+    : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true, configured: false, url: '', connections: [], limit: 20 }) }));
+  await page.getByRole('button', { name: 'Liên kết Google Drive', exact: true }).click();
+  await page.getByLabel('Link thư mục Google Drive').fill('https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
+  await page.getByLabel('Google Drive API key cho thư mục này').fill('invalid-test-key');
+  await page.getByRole('button', { name: 'Thêm liên kết', exact: true }).click();
   await waitText(page, 'drive-status', 'Link thư mục hoặc API key không hợp lệ.');
   assert.equal(await page.locator('#drive-status').getAttribute('data-type'), 'error');
   assert.equal(await page.locator('#toast').evaluate(toast => toast.matches(':popover-open')), false);

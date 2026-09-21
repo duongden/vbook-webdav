@@ -13,7 +13,7 @@ import { extensionApi, extensionApp, shortExtensionApp } from './webdav/extensio
 const app = new Hono<AppEnv>();
 
 app.use('*', async (c, next) => {
-  c.header('X-VBook-Version', 'drive-share-20260920');
+  c.header('X-VBook-Version', 'multi-drive-20260921');
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('X-Frame-Options', 'DENY');
   c.header('Referrer-Policy', 'no-referrer');
