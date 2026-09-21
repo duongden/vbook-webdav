@@ -153,12 +153,14 @@ test('Google Drive dialog explains the independent read-only WebDAV connection',
   await page.route('**/api/drive', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ configured: true, available: true, url: 'https://library.example/drive-webdav/' }),
+    body: JSON.stringify({ configured: true, available: true, url: 'https://library.example/drive-webdav/', folderUrl: 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345' }),
   }));
   await page.getByRole('button', { name: 'Liên kết Google Drive', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Google Drive qua WebDAV' });
   await dialog.getByText('Đã liên kết một thư mục Google Drive.').waitFor();
   assert.equal(await page.getByLabel('URL WebDAV chỉ đọc').inputValue(), 'https://library.example/drive-webdav/');
+  assert.equal(await page.getByLabel('Link thư mục Google Drive').inputValue(), 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
+  assert.equal(await page.getByRole('link', { name: 'Mở thư mục Google Drive đã liên kết' }).getAttribute('href'), 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
   assert.equal(await page.getByLabel('Google Drive API key của bạn').getAttribute('type'), 'password');
   await dialog.getByText('Cách lấy Google Drive API key', { exact: true }).click();
   await dialog.getByText('Sao chép key vào ô phía trên.', { exact: false }).waitFor();

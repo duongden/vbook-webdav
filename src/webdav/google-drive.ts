@@ -44,6 +44,7 @@ export function extractDriveFolderId(input: string): string | null {
 }
 
 interface DriveConfig { folderId: string; encryptedKey: string }
+function driveFolderUrl(folderId: string): string { return `https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}`; }
 function vaultSecret(c: Context<AppEnv>): string { return c.env.DRIVE_VAULT_KEY || c.env.ADMIN_SESSION_SECRET || ''; }
 async function vaultKey(c: Context<AppEnv>): Promise<string> {
   const secret = vaultSecret(c);
@@ -224,7 +225,7 @@ driveWebDavApp.onError(onError);
 
 driveConfigApi.get('/', async c => {
   const config = await readConfig(c);
-  return c.json({ configured: Boolean(config), available: vaultSecret(c).length >= 32, hasApiKey: Boolean(config), url: `${new URL(c.req.url).origin}/drive-webdav/` });
+  return c.json({ configured: Boolean(config), available: vaultSecret(c).length >= 32, hasApiKey: Boolean(config), url: `${new URL(c.req.url).origin}/drive-webdav/`, folderUrl: config ? driveFolderUrl(config.folderId) : null });
 });
 
 driveConfigApi.put('/', async c => {
@@ -247,7 +248,7 @@ driveConfigApi.put('/', async c => {
   const encryptedKey = await encryptPassword(await vaultKey(c), 'drive:' + c.get('username'), key);
   const response = await configRequest(c, 'set', { folderId, encryptedKey });
   if (!response.ok) return c.json({ error: 'Không lưu được kết nối Drive.' }, 503);
-  return c.json({ configured: true, url: `${new URL(c.req.url).origin}/drive-webdav/` });
+  return c.json({ configured: true, url: `${new URL(c.req.url).origin}/drive-webdav/`, folderUrl: driveFolderUrl(folderId) });
 });
 
 driveConfigApi.delete('/', async c => {

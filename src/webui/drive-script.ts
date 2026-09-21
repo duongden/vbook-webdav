@@ -652,6 +652,8 @@ export const driveScript = String.raw`
 
   const driveStatus = document.getElementById('drive-status');
   const driveConnection = document.getElementById('drive-connection');
+  const driveFolderInput = document.getElementById('drive-folder-url');
+  const driveSourceLink = document.getElementById('drive-source-link');
   const disconnectDrive = document.getElementById('disconnect-drive');
   function setDriveStatus(message, type = 'info') {
     driveStatus.textContent = message;
@@ -671,6 +673,8 @@ export const driveScript = String.raw`
       driveConnection.hidden = !data.configured;
       disconnectDrive.hidden = !data.configured;
       document.getElementById('drive-webdav-url').value = data.url;
+      driveFolderInput.value = data.folderUrl || '';
+      driveSourceLink.href = data.folderUrl || '#';
     } catch { setDriveStatus('Không đọc được trạng thái Google Drive.', 'error'); }
   }
   document.getElementById('manage-drive').addEventListener('click', () => { driveDialog.showModal(); void loadDriveStatus(); });
@@ -682,13 +686,15 @@ export const driveScript = String.raw`
     const submit = event.currentTarget.querySelector('[type=submit]');
     submit.disabled = true;
     try {
-    const response = await driveRequest('PUT', { url: document.getElementById('drive-folder-url').value, apiKey: document.getElementById('drive-api-key').value });
+    const response = await driveRequest('PUT', { url: driveFolderInput.value, apiKey: document.getElementById('drive-api-key').value });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setDriveStatus(data.error || 'Không liên kết được Google Drive.', 'error'); return; }
     setDriveStatus('Đã liên kết thư mục Google Drive.', 'success');
     driveConnection.hidden = false;
     disconnectDrive.hidden = false;
     document.getElementById('drive-webdav-url').value = data.url;
+    driveFolderInput.value = data.folderUrl;
+    driveSourceLink.href = data.folderUrl;
     document.getElementById('drive-api-key').value = '';
     showToast('Đã liên kết Google Drive với WebDAV.');
     } catch { setDriveStatus('Không kết nối được máy chủ. Vui lòng thử lại.', 'error'); }
@@ -698,7 +704,8 @@ export const driveScript = String.raw`
     if (!confirm('Ngắt liên kết Google Drive khỏi tài khoản này?')) return;
     const response = await driveRequest('DELETE');
     if (!response.ok) { showToast('Không ngắt được liên kết Google Drive.', 'error'); return; }
-    document.getElementById('drive-folder-url').value = '';
+    driveFolderInput.value = '';
+    driveSourceLink.href = '#';
     driveConnection.hidden = true;
     disconnectDrive.hidden = true;
     driveStatus.textContent = 'Chưa liên kết thư mục Google Drive.';

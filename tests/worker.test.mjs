@@ -272,7 +272,7 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
 
   const status = await mf.dispatchFetch('https://test.local/api/drive', { headers: { Authorization: authorization } });
   assert.equal(status.status, 200);
-  assert.deepEqual(await status.json(), { configured: false, available: true, hasApiKey: false, url: root });
+  assert.deepEqual(await status.json(), { configured: false, available: true, hasApiKey: false, url: root, folderUrl: null });
 
   const invalid = await mf.dispatchFetch('https://test.local/api/drive', {
     method: 'PUT', headers: { Authorization: authorization, Origin: 'https://test.local', 'X-VBook-Action': 'drive', 'Content-Type': 'application/json' },
@@ -289,13 +289,14 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
     method: 'PUT', headers: actionHeaders, body: JSON.stringify({ url: `https://drive.google.com/drive/folders/${driveRootId}`, apiKey: 'test-drive-key-user-123456' }),
   });
   assert.equal(connected.status, 200);
-  assert.deepEqual(await connected.json(), { configured: true, url: root });
+  assert.deepEqual(await connected.json(), { configured: true, url: root, folderUrl: `https://drive.google.com/drive/folders/${driveRootId}` });
 
   const privateConfig = await (await mf.getDurableObjectNamespace('USER_STORAGE')).get((await mf.getDurableObjectNamespace('USER_STORAGE')).idFromName(`user:${name}`)).fetch('https://internal/drive-get', { headers: { 'X-Storage-User': name } });
   const encrypted = await privateConfig.json();
   assert.ok(encrypted.encryptedKey.startsWith('v1.'));
   assert.ok(!JSON.stringify(encrypted).includes('test-drive-key-user-123456'));
   const publicStatus = await (await mf.dispatchFetch('https://test.local/api/drive', { headers: { Authorization: authorization } })).text();
+  assert.ok(publicStatus.includes(`https://drive.google.com/drive/folders/${driveRootId}`));
   assert.ok(!publicStatus.includes(encrypted.encryptedKey));
   const other = await user('drive_other');
   assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 404);
