@@ -116,7 +116,10 @@ async function listFolder(c: Context<AppEnv>, folderId: string): Promise<DriveIt
 
 function drivePath(url: string): string[] | null {
   const pathname = new URL(url).pathname;
-  const raw = pathname.replace(/^\/drive-webdav(?=\/|$)/, '') || '/';
+  // Some Android WebDAV clients resolve the absolute href returned by
+  // PROPFIND against the configured mount path as if it were relative. Accept
+  // the resulting repeated mount prefix without weakening path decoding.
+  const raw = pathname.replace(/^(?:\/drive-webdav)+(?=\/|$)/, '') || '/';
   let decoded: string;
   try { decoded = decodeURIComponent(raw); } catch { return null; }
   if (/[\\\x00-\x1f\x7f]/.test(decoded)) return null;

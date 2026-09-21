@@ -337,6 +337,16 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
   assert.equal(nested.status, 207);
   assert.match(await nested.text(), /T%E1%BA%ADp%201\.pdf/);
 
+  // Ktor-based clients can prepend the configured mount to an absolute DAV
+  // href. The repeated prefix must still resolve nested folders and files.
+  const repeatedMount = root + 'drive-webdav/' + encodeURIComponent('Tiên Hiệp') + '/';
+  const repeatedNested = await mf.dispatchFetch(repeatedMount, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
+  assert.equal(repeatedNested.status, 207);
+  assert.match(await repeatedNested.text(), /T%E1%BA%ADp%201\.pdf/);
+  const repeatedDownload = await mf.dispatchFetch(repeatedMount + encodeURIComponent('Tập 1.pdf'), { headers: { Authorization: authorization }, redirect: 'manual' });
+  assert.equal(repeatedDownload.status, 302);
+  assert.equal(repeatedDownload.headers.get('location'), 'https://drive.google.com/uc?export=download&id=NESTED_FILE_12345&confirm=t');
+
   const download = await mf.dispatchFetch(root + encodeURIComponent('Sách & truyện.epub'), { headers: { Authorization: authorization }, redirect: 'manual' });
   assert.equal(download.status, 302);
   assert.equal(download.headers.get('location'), 'https://drive.google.com/uc?export=download&id=BOOK_FILE_12345&confirm=t');
