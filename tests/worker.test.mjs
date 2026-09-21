@@ -603,7 +603,7 @@ test('extension links serve only vbookext files without login and can be revoked
   assert.equal((await mf.dispatchFetch(baseUrl + 'plugin.json')).status, 404);
   const next = await (await request(name, '/api/extensions', 'POST', undefined, headers)).json();
   assert.notEqual(next.baseUrl, baseUrl);
-  const saved = { data: [{ name: 'Saved URL', path: baseUrl + 'demo/plugin.zip', icon: baseUrl + 'demo/icon.png' }, { name: 'Other owner', path: baseUrl.replace('/' + name + '/', '/another_user/') + 'demo/plugin.zip' }] };
+  const saved = { data: [{ name: 'Saved URL', path: baseUrl + 'demo/plugin.zip', icon: baseUrl + 'demo/icon.png' }, { name: 'Other owner', path: 'https://test.local/extensions/another_user/' + 'x'.repeat(43) + '/demo/plugin.zip' }] };
   await bucket.put(name + '/vbookext/plugin.json', JSON.stringify(saved));
   const updated = await (await mf.dispatchFetch(next.baseUrl + 'plugin.json')).json();
   assert.equal(updated.data[0].path, next.baseUrl + 'demo/plugin.zip');
@@ -672,4 +672,36 @@ test('real extension ZIP downloads byte-for-byte through repository link', { ski
   assert.deepEqual(bytes, zip);
   assert.equal(bytes.subarray(0, 2).toString(), 'PK');
   console.log('Verified real ZIP: ' + bytes.length + ' bytes, unchanged after download');
+});
+
+test('short links preserve legacy links, stay stable on overwrite, isolate owners and revoke both formats', async () => {
+  const name = await user('short_links');
+  const namespace = await mf.getDurableObjectNamespace('USER_STORAGE');
+  const legacyToken = 'L'.repeat(43);
+  const legacy = 'https://test.local/extensions/' + name + '/' + legacyToken + '/';
+  const issued = await namespace.get(namespace.idFromName('user:' + name)).fetch('https://internal/extension-link', {
+    method: 'POST', headers: { 'X-Storage-User': name, 'X-Extension-Token': legacyToken }
+  });
+  assert.equal(issued.status, 200);
+  await bucket.put(name + '/vbookext/qimao/plugin.zip', 'old');
+  await bucket.put(name + '/vbookext/plugin.json', JSON.stringify({ data: [{path: legacy + 'qimao/plugin.zip'}] }));
+  const headers = { 'X-VBook-Action': 'extensions' };
+  const { baseUrl } = await (await request(name, '/api/extensions', 'POST', undefined, headers)).json();
+  assert.match(baseUrl, /^https:\/\/test.local\/s\/[A-Za-z0-9_-]{22}\/$/);
+  assert.equal(await (await mf.dispatchFetch(legacy + 'qimao/plugin.zip')).text(), 'old');
+  const manifest = await (await mf.dispatchFetch(baseUrl + 'plugin.json')).json();
+  assert.equal(manifest.data[0].path, baseUrl + 'qimao/plugin.zip');
+  assert.equal((await request(name, '/webdav/vbookext/qimao/plugin.zip', 'PUT', 'new bytes')).status, 201);
+  assert.equal((await (await request(name, '/api/extensions', 'POST', undefined, headers)).json()).baseUrl, baseUrl);
+  assert.equal(await (await mf.dispatchFetch(baseUrl + 'qimao/plugin.zip')).text(), 'new bytes');
+  assert.equal(await (await mf.dispatchFetch(legacy + 'qimao/plugin.zip')).text(), 'new bytes');
+  const other = await user('short_other');
+  const foreign = await (await request(other, '/api/extensions', 'POST', undefined, headers)).json();
+  await bucket.put(name + '/vbookext/plugin.json', JSON.stringify({ data: [{path: foreign.baseUrl + 'plugin.zip'}] }));
+  assert.equal((await (await mf.dispatchFetch(baseUrl + 'plugin.json')).json()).data[0].path, foreign.baseUrl + 'plugin.zip');
+  await request(name, '/api/extensions', 'DELETE', undefined, headers);
+  assert.equal((await mf.dispatchFetch(baseUrl + 'qimao/plugin.zip')).status, 404);
+  assert.equal((await mf.dispatchFetch(legacy + 'qimao/plugin.zip')).status, 404);
+  const staleId = new URL(baseUrl).pathname.split('/')[2];
+  assert.equal(await kv.get('extension-short:' + staleId), name, 'stale routing record must not grant access');
 });

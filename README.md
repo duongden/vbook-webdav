@@ -75,19 +75,76 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 
 ## Tải truyện lên thư viện
 
-### Lấy link nguồn extension cho vBook
+### Chia sẻ nguồn extension bằng link ngắn
 
-1. Upload `plugin.json` và các tệp đi kèm vào `vbookext`, giữ đúng cấu trúc thư mục.
-2. Bấm icon liên kết có tooltip **Lấy link extension** ở hàng tệp `plugin.json`.
-3. Chọn **Sao chép**, rồi dán link vào phần thêm nguồn tương ứng trong vBook.
+**Bạn chỉ cần thêm link của danh sách nguồn vào vBook một lần.** Khi bấm cài, vBook sẽ tải ZIP tương ứng từ máy chủ.
 
-Link cho phép tải không cần nhập mật khẩu WebDAV. Ai có mã trong link có thể tải tệp trong `vbookext`; các thư mục khác vẫn riêng tư. Khi phục vụ JSON kho nguồn có mảng `data`, máy chủ tự chuyển các trường `path` và `icon` nội bộ thành URL chia sẻ đầy đủ. Đường dẫn tương đối được tính từ thư mục chứa JSON; đường dẫn `vbookext/...` và URL WebDAV cùng máy chủ cũng được hỗ trợ. URL bên ngoài và trường `source` giữ nguyên. URL chia sẻ `/extensions/...` của cùng tài khoản và cùng máy chủ cũng được đổi sang mã hiện tại nếu JSON còn lưu link cũ. Link cũ đã thu hồi vẫn không dùng được. File JSON gốc không bị chỉnh sửa.
+**Bước 1 — Chuẩn bị thư mục**
 
-Ví dụ: với `vbookext/plugin.json` và `vbookext/qimao/plugin.zip`, đặt `"path": "qimao/plugin.zip"` trong mục Qimao thuộc mảng `data`. Nếu có icon, dùng `"icon": "qimao/icon.png"`. Không dùng `"path": "plugin.zip"` trừ khi gói ZIP nằm cùng thư mục với JSON.
+Tạo `vbookext`, rồi tạo thư mục con cho từng extension. Ví dụ:
 
-`plugin.json` phải đúng định dạng nguồn mà phiên bản vBook của bạn hỗ trợ; chức năng này cung cấp link tải, không tự chuyển manifest extension thành danh sách kho nguồn. Chọn **Thu hồi link** trong popup để vô hiệu hóa toàn bộ link extension đã cấp. Lần lấy link tiếp theo sẽ tạo mã mới và cần cập nhật lại trong vBook.
+```text
+vbookext/
+├── plugin.json          ← danh sách nguồn để thêm vào vBook
+└── qimao/
+    ├── plugin.zip       ← gói extension đã build
+    └── icon.png
+```
 
-Phân biệt hai file JSON: `vbookext/plugin.json` là danh sách nguồn có mảng `data`; bên trong mỗi `plugin.zip` là manifest extension với `metadata` và `script`. ZIP phải chứa `plugin.json`, `icon.png` và `src/` ngay ở cấp gốc, không bọc thêm thư mục `qimao/`. Với gói mã hóa do vBook build, upload nguyên file ZIP; server giữ nguyên nội dung nhị phân khi tải xuống.
+Upload từng tệp vào đúng vị trí. `plugin.zip` phải chứa `plugin.json`, `icon.png` và `src/` ngay ở cấp gốc, không bọc thêm thư mục `qimao/`. Với gói mã hóa, upload nguyên ZIP đã build.
+
+**Bước 2 — Kiểm tra danh sách nguồn**
+
+Trong `vbookext/plugin.json`, giữ nguyên thông tin của extension trong mảng `data`, và đặt hai trường đường dẫn như sau:
+
+```json
+"path": "qimao/plugin.zip",
+"icon": "qimao/icon.png"
+```
+
+Đây là hai trường trong một mục nguồn, không phải toàn bộ file JSON. Đường dẫn tính từ thư mục chứa danh sách nguồn: nếu JSON nằm ngay trong `qimao/`, dùng `"path": "plugin.zip"`.
+
+Lưu ý: JSON **bên trong ZIP** là manifest có `metadata` và `script`; JSON **ngoài ZIP** là danh sách nguồn có mảng `data`. Hai file này khác chức năng.
+
+**Bước 3 — Sao chép link**
+
+1. Mở `vbookext` trên web.
+2. Ở hàng `plugin.json`, bấm icon liên kết có tooltip **Lấy link extension**.
+3. Bấm **Sao chép** trong popup.
+4. Dán link vào phần thêm nguồn extension của vBook. Làm mới nguồn, chọn extension và bấm cài.
+
+Link mới có dạng sau; `<mã>` là chuỗi ngẫu nhiên 22 ký tự do web tạo, bạn không cần tự nhập:
+
+```text
+Nguồn: https://ten-may-chu/s/<mã>/plugin.json
+ZIP:   https://ten-may-chu/s/<mã>/qimao/plugin.zip
+Icon:  https://ten-may-chu/s/<mã>/qimao/icon.png
+```
+
+```mermaid
+flowchart LR
+    A[Thêm link plugin.json vào vBook] --> B[Hiện danh sách nguồn]
+    B --> C[Bấm Cài đặt]
+    C --> D[Tải qimao/plugin.zip]
+    D --> E[vBook giải nén và cài extension]
+```
+
+Web tự chuyển `path` và `icon` nội bộ trong danh sách nguồn thành link tải đầy đủ. File JSON đã upload không bị sửa. URL bên ngoài và trường `source` được giữ nguyên. Bạn có thể lấy link riêng của ZIP hoặc icon bằng cùng nút liên kết.
+
+**Cập nhật và thu hồi**
+
+| Thao tác | Kết quả |
+|---|---|
+| Upload ghi đè đúng tên, đúng thư mục | Link giữ nguyên, tải nội dung mới; bản cũ vào Lịch sử |
+| Bấm lấy link hoặc sao chép nhiều lần | Vẫn cùng link |
+| Đổi tên hoặc di chuyển tệp | Đường dẫn đổi; cần cập nhật danh sách nguồn |
+| Đang dùng link dài `/extensions/...` | Tiếp tục hoạt động nếu chưa thu hồi; lấy link mới trên web sẽ nhận link ngắn |
+| Bấm **Thu hồi link** | Cả link ngắn và link dài cũ của tài khoản ngừng hoạt động |
+| Lấy link sau khi thu hồi | Có mã mới; cập nhật link nguồn trong vBook |
+
+Ai có link có thể tải các tệp trong `vbookext` mà không cần mật khẩu. Link chỉ cho phép đọc; không truy cập các thư mục khác. Không gửi link nếu muốn giữ nguồn riêng.
+
+Nếu thấy nguồn nhưng cài không được: kiểm tra `path` có trỏ đúng ZIP, dùng nút lấy link của ZIP để thử tải, rồi kiểm tra ZIP chứa manifest ở cấp gốc. Nếu vừa thu hồi link, lấy lại link danh sách nguồn và cập nhật trong vBook; việc có danh sách đã lưu trong app không có nghĩa link cũ còn tải được.
 
 ### Chọn kiểu xem và di chuyển tệp
 

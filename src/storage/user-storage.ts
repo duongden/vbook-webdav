@@ -71,6 +71,19 @@ export class UserStorage {
       return new Response('Account storage is disabled', { status: 403 });
     }
 
+    if (action === '/extension-short-link') {
+      const supplied = request.headers.get('X-Extension-Token') || '';
+      if (!/^[A-Za-z0-9_-]{22}$/.test(supplied)) return new Response('Invalid token', { status: 400 });
+      const token = await this.state.storage.get<string>('extension-short-token') || supplied;
+      await this.state.storage.put('extension-short-token', token);
+      // Lookup is only routing. Every download must also pass the durable token check.
+      await this.env.USER_KV.put('extension-short:' + token, username);
+      return new Response(token);
+    }
+    if (action === '/extension-short-auth') {
+      const token = await this.state.storage.get<string>('extension-short-token');
+      return new Response(null, { status: token && constantTimeEqual(token, request.headers.get('X-Extension-Token') || '') ? 204 : 403 });
+    }
     if (action === '/extension-link') {
       const supplied = request.headers.get('X-Extension-Token') || '';
       if (!/^[A-Za-z0-9_-]{43}$/.test(supplied)) return new Response('Invalid token', { status: 400 });
@@ -79,7 +92,7 @@ export class UserStorage {
       return new Response(token);
     }
     if (action === '/extension-revoke') {
-      await this.state.storage.delete('extension-token');
+      await this.state.storage.delete(['extension-token', 'extension-short-token']);
       return new Response(null, { status: 204 });
     }
     if (action === '/extension-auth') {
@@ -110,7 +123,7 @@ export class UserStorage {
     if (action === '/delete' || action === '/retire') {
       if (action === '/retire') {
         await this.state.storage.put('disabled', true);
-        await this.state.storage.delete('extension-token');
+        await this.state.storage.delete(['extension-token', 'extension-short-token']);
         await this.state.storage.delete('drive-config');
         const shares = await this.state.storage.list<WebDavShare>({ prefix: 'share:' });
         if (shares.size) await this.state.storage.delete([...shares.keys()]);

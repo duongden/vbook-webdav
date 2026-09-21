@@ -530,7 +530,7 @@ test('extension link action survives refresh and revokes the generated URL', asy
   await page.getByRole('button', { name: 'Lấy link plugin.json', exact: true }).click();
   await page.locator('#extension-dialog').waitFor({ state: 'visible' });
   const link = await page.getByLabel('Link tệp', { exact: true }).inputValue();
-  assert.match(link, /\/extensions\/[^/]+\/[A-Za-z0-9_-]{43}\/plugin.json$/);
+  assert.match(link, /\/s\/[A-Za-z0-9_-]{22}\/plugin.json$/);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Thu hồi link', exact: true }).click();
   await waitText(page, 'toast-message', 'Đã thu hồi link extension');
