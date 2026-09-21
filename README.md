@@ -189,9 +189,9 @@ Mỗi user có thể liên kết tối đa 20 thư mục Google Drive công khai
 2. Chọn **Bất kỳ ai có đường liên kết** và quyền **Người xem**.
 3. Trên trang quản lý file, chọn nút **Drive**.
 4. Dán link thư mục, nhập **Google Drive API key cho thư mục này**, rồi chọn **Thêm liên kết**.
-5. Trong danh sách kết nối, sao chép URL WebDAV chỉ đọc của đúng thư mục.
+5. Sao chép **URL WebDAV tổng** để thấy mọi nguồn dưới dạng các thư mục con, hoặc sao chép URL riêng của một nguồn nếu chỉ muốn kết nối nguồn đó.
 6. Trong VBook hoặc Legado, thêm URL đó cùng username và password tài khoản hiện tại.
-7. Lặp lại các bước trên để thêm nguồn Drive khác. Mỗi nguồn có URL WebDAV riêng và có thể dùng API key khác.
+7. Lặp lại các bước trên để thêm nguồn Drive khác. Mỗi nguồn có URL WebDAV riêng và có thể dùng API key khác; URL tổng không thay đổi khi thêm nguồn.
 
 <img src="docs/images/drive-dialog.png" alt="Hộp liên kết thư mục Google Drive và URL WebDAV chỉ đọc" width="620">
 

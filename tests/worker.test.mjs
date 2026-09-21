@@ -272,8 +272,10 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
   const name = await user('drive_webdav');
   const authorization = `Basic ${Buffer.from(`${name}:${password}`).toString('base64')}`;
   const root = 'https://test.local/drive-webdav/';
-  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } })).status, 404);
-  assert.equal((await mf.dispatchFetch(root, { method: 'PUT', headers: { Authorization: authorization, 'Content-Length': '1' }, body: 'x' })).status, 404);
+  const emptyRoot = await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
+  assert.equal(emptyRoot.status, 207);
+  assert.equal([...(await emptyRoot.text()).matchAll(/<D:href>([^<]+)<\/D:href>/g)].length, 1);
+  assert.equal((await mf.dispatchFetch(root, { method: 'PUT', headers: { Authorization: authorization, 'Content-Length': '1' }, body: 'x' })).status, 405);
 
   const status = await mf.dispatchFetch('https://test.local/api/drive', { headers: { Authorization: authorization } });
   assert.equal(status.status, 200);
@@ -312,7 +314,7 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
   assert.ok(publicStatus.includes(`https://drive.google.com/drive/folders/${driveRootId}`));
   assert.ok(!publicStatus.includes(encrypted.encryptedKey));
   const other = await user('drive_other');
-  assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 404);
+  assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 207);
   const otherAuth = `Basic ${Buffer.from(`${other}:${password}`).toString('base64')}`;
   const otherHeaders = { ...actionHeaders, Authorization: otherAuth };
   const ns = await mf.getDurableObjectNamespace('USER_STORAGE');
@@ -337,7 +339,16 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
   assert.equal(secondListing.status, 207);
   assert.match(await secondListing.text(), /Public%20book\.epub/);
 
-  const propfind = await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
+  const aggregate = await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
+  assert.equal(aggregate.status, 207);
+  const aggregateXml = await aggregate.text();
+  assert.match(aggregateXml, new RegExp(`/drive-webdav/${firstConnection.id}/`));
+  assert.match(aggregateXml, new RegExp(`/drive-webdav/${secondConnection.id}/`));
+  assert.match(aggregateXml, /Books/);
+  assert.match(aggregateXml, /Public Library/);
+  assert.doesNotMatch(aggregateXml, /Ti%C3%AAn%20Hi%E1%BB%87p|Public%20book\.epub/);
+
+  const propfind = await mf.dispatchFetch(firstConnection.url, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
   assert.equal(propfind.status, 207);
   const xml = await propfind.text();
   assert.match(xml, /Ti%C3%AAn%20Hi%E1%BB%87p\//);
@@ -345,7 +356,8 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
   assert.doesNotMatch(xml, /ROOT_FOLDER|BOOK_FILE|test-drive-key/);
 
   // vBook can join the server and root-folder fields without a trailing slash.
-  for (const path of ['/drive-webdav', '/drive-webdav/', '/drive-webdav/' + encodeURIComponent('Tiên Hiệp'), '/drive-webdav/' + encodeURIComponent('Tiên Hiệp') + '/']) {
+  const firstPath = new URL(firstConnection.url).pathname;
+  for (const path of [firstPath.slice(0, -1), firstPath, firstPath + encodeURIComponent('Tiên Hiệp'), firstPath + encodeURIComponent('Tiên Hiệp') + '/']) {
     for (const depth of ['0', '1']) {
       const response = await request(name, path, 'PROPFIND', undefined, { Depth: depth });
       assert.equal(response.status, 207);
@@ -360,13 +372,13 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
     }
   }
 
-  const nested = await mf.dispatchFetch(root + encodeURIComponent('Tiên Hiệp') + '/', { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
+  const nested = await mf.dispatchFetch(firstConnection.url + encodeURIComponent('Tiên Hiệp') + '/', { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
   assert.equal(nested.status, 207);
   assert.match(await nested.text(), /T%E1%BA%ADp%201\.pdf/);
 
   // Ktor-based clients can prepend the configured mount to an absolute DAV
   // href. The repeated prefix must still resolve nested folders and files.
-  const repeatedMount = root + 'drive-webdav/' + encodeURIComponent('Tiên Hiệp') + '/';
+  const repeatedMount = firstConnection.url + 'drive-webdav/' + firstConnection.id + '/' + encodeURIComponent('Tiên Hiệp') + '/';
   const repeatedNested = await mf.dispatchFetch(repeatedMount, { method: 'PROPFIND', headers: { Authorization: authorization, Depth: '1' } });
   assert.equal(repeatedNested.status, 207);
   assert.match(await repeatedNested.text(), /T%E1%BA%ADp%201\.pdf/);
@@ -374,16 +386,16 @@ test('Google Drive WebDAV is opt-in, read-only and protects configuration mutati
   assert.equal(repeatedDownload.status, 302);
   assert.equal(repeatedDownload.headers.get('location'), 'https://drive.google.com/uc?export=download&id=NESTED_FILE_12345&confirm=t');
 
-  const download = await mf.dispatchFetch(root + encodeURIComponent('Sách & truyện.epub'), { headers: { Authorization: authorization }, redirect: 'manual' });
+  const download = await mf.dispatchFetch(firstConnection.url + encodeURIComponent('Sách & truyện.epub'), { headers: { Authorization: authorization }, redirect: 'manual' });
   assert.equal(download.status, 302);
   assert.equal(download.headers.get('location'), 'https://drive.google.com/uc?export=download&id=BOOK_FILE_12345&confirm=t');
-  assert.equal((await mf.dispatchFetch(root + 'new.epub', { method: 'PUT', headers: { Authorization: authorization, 'Content-Length': '1' }, body: 'x' })).status, 405);
+  assert.equal((await mf.dispatchFetch(firstConnection.url + 'new.epub', { method: 'PUT', headers: { Authorization: authorization, 'Content-Length': '1' }, body: 'x' })).status, 405);
 
   assert.equal((await mf.dispatchFetch('https://test.local/api/drive', { method: 'DELETE', headers: actionHeaders, body: JSON.stringify({ id: firstConnection.id }) })).status, 204);
   assert.equal((await mf.dispatchFetch(firstConnection.url, { method: 'PROPFIND', headers: { Authorization: authorization } })).status, 404);
   assert.equal((await mf.dispatchFetch(secondConnection.url, { method: 'PROPFIND', headers: { Authorization: authorization } })).status, 207);
   assert.equal((await mf.dispatchFetch('https://test.local/api/drive', { method: 'DELETE', headers: actionHeaders, body: JSON.stringify({ id: secondConnection.id }) })).status, 204);
-  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization } })).status, 404);
+  assert.equal((await mf.dispatchFetch(root, { method: 'PROPFIND', headers: { Authorization: authorization } })).status, 207);
   assert.equal((await request(other, '/drive-webdav/', 'PROPFIND')).status, 207, 'disconnecting one user leaves the other connected');
 });
 

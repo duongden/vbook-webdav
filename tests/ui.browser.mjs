@@ -163,6 +163,9 @@ test('Google Drive dialog explains the independent read-only WebDAV connection',
   await dialog.getByText('Đã liên kết 2/20 thư mục Google Drive.').waitFor();
   await dialog.getByText('Books', { exact: true }).waitFor();
   await dialog.getByText('Public Library', { exact: true }).waitFor();
+  assert.equal(await dialog.getByText('Tất cả nguồn Drive', { exact: true }).count(), 1);
+  assert.equal(await dialog.getByText('https://library.example/drive-webdav/', { exact: true }).count(), 1);
+  assert.equal(await dialog.getByRole('button', { name: 'Sao chép URL WebDAV tổng', exact: true }).count(), 1);
   assert.equal(await dialog.getByText('https://library.example/drive-webdav/connection123/', { exact: true }).count(), 1);
   assert.equal(await dialog.getByRole('link', { name: 'Mở Google Drive' }).first().getAttribute('href'), 'https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
   assert.equal(await page.getByLabel('Google Drive API key cho thư mục này').getAttribute('type'), 'password');

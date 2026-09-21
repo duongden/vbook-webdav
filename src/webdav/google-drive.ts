@@ -158,11 +158,34 @@ function propResponse(item: DriveItem, href: string, displayName: string): strin
   return `  <D:response>\n    <D:href>${escapeXml(href)}</D:href>\n    <D:propstat>\n      <D:prop>\n        <D:displayname>${escapeXml(displayName)}</D:displayname>\n        <D:resourcetype>${directory ? '<D:collection/>' : ''}</D:resourcetype>\n${directory ? '' : `        <D:getcontentlength>${Number.isSafeInteger(size) ? size : 0}</D:getcontentlength>\n        <D:getcontenttype>${escapeXml(item.mimeType || 'application/octet-stream')}</D:getcontenttype>\n`}        <D:getlastmodified>${modified.toUTCString()}</D:getlastmodified>\n        <D:creationdate>${modified.toISOString()}</D:creationdate>\n      </D:prop>\n      <D:status>HTTP/1.1 200 OK</D:status>\n    </D:propstat>\n  </D:response>\n`;
 }
 
+function driveCollectionResponse(c: Context<AppEnv>, configs: DriveConfig[]): Response {
+  const method = c.req.method;
+  if (method === 'OPTIONS') return c.text('', 200, { Allow: 'OPTIONS, GET, HEAD, PROPFIND', DAV: '1' });
+  if (!['GET', 'HEAD', 'PROPFIND'].includes(method)) return c.text('Method Not Allowed', 405, { Allow: 'OPTIONS, GET, HEAD, PROPFIND' });
+  if (method !== 'PROPFIND') return new Response(null, { status: 200, headers: { 'Cache-Control': 'private, no-store' } });
+  const depth = c.req.header('Depth') || '1';
+  if (depth !== '0' && depth !== '1') return c.body('<D:error xmlns:D="DAV:"><D:propfind-finite-depth/></D:error>', 403, { 'Content-Type': 'application/xml' });
+  const root: DriveItem = { id: 'drive-connections', name: 'Google Drive', mimeType: FOLDER_MIME };
+  let xml = '<?xml version="1.0" encoding="utf-8" ?>\n<D:multistatus xmlns:D="DAV:">\n';
+  xml += propResponse(root, new URL(c.req.url).pathname, 'Google Drive');
+  if (depth === '1') {
+    for (const config of configs) {
+      const item: DriveItem = { id: config.id, name: config.label, mimeType: FOLDER_MIME, modifiedTime: new Date(config.createdAt).toISOString() };
+      xml += propResponse(item, itemHref([config.id], true), config.label);
+    }
+  }
+  c.header('Content-Type', 'application/xml; charset=utf-8');
+  c.header('Cache-Control', 'private, no-store');
+  c.header('Content-Location', '/drive-webdav/');
+  return c.body(`${xml}</D:multistatus>`, 207);
+}
+
 async function driveWebDavHandler(c: Context<AppEnv>): Promise<Response> {
   const configs = await readConfigs(c);
-  if (!configs.length) return c.text('Connect your Google Drive API key first', 404);
   const parsedSegments = drivePath(c.req.url);
   if (!parsedSegments) return c.text('Forbidden', 403);
+  if (!parsedSegments.length && configs.length !== 1) return driveCollectionResponse(c, configs);
+  if (!configs.length) return c.text('Drive connection not found', 404);
   const segments = [...parsedSegments];
   let config = configs[0];
   const selected = segments.length ? configs.find(item => item.id === segments[0]) : undefined;

@@ -661,11 +661,18 @@ export const driveScript = String.raw`
   function driveRequest(method, body) {
     return fetchWithTimeout('/api/drive', { method, headers: { 'X-VBook-Action': 'drive', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
   }
-  function renderDriveConnections(connections) {
+  function renderDriveConnections(connections, rootUrl) {
     driveConnections.replaceChildren();
     if (!connections.length) {
       const empty = document.createElement('p'); empty.className = 'drive-empty'; empty.textContent = 'Chưa có thư mục Google Drive nào được liên kết.'; driveConnections.append(empty); return;
     }
+    const aggregate = document.createElement('article'); aggregate.className = 'drive-connection';
+    const aggregateHead = document.createElement('div'); aggregateHead.className = 'drive-connection-head';
+    const aggregateName = document.createElement('strong'); aggregateName.textContent = 'Tất cả nguồn Drive';
+    const aggregateCopy = document.createElement('button'); aggregateCopy.type = 'button'; aggregateCopy.className = 'btn'; aggregateCopy.dataset.copyDrive = rootUrl; aggregateCopy.textContent = 'Sao chép URL WebDAV tổng';
+    aggregateHead.append(aggregateName, aggregateCopy);
+    const aggregateUrl = document.createElement('code'); aggregateUrl.textContent = rootUrl;
+    aggregate.append(aggregateHead, aggregateUrl); driveConnections.append(aggregate);
     for (const connection of connections) {
       const item = document.createElement('article'); item.className = 'drive-connection';
       const head = document.createElement('div'); head.className = 'drive-connection-head';
@@ -688,7 +695,7 @@ export const driveScript = String.raw`
       const data = await response.json();
       const connections = Array.isArray(data.connections) ? data.connections : [];
       setDriveStatus(!data.available ? 'Máy chủ chưa bật lưu khóa an toàn. Liên hệ người vận hành.' : connections.length ? 'Đã liên kết ' + connections.length + '/' + (data.limit || 20) + ' thư mục Google Drive.' : 'Chưa liên kết thư mục Google Drive.', data.available ? 'info' : 'error');
-      renderDriveConnections(connections);
+      renderDriveConnections(connections, data.url);
     } catch { setDriveStatus('Không đọc được trạng thái Google Drive.', 'error'); }
   }
   document.getElementById('manage-drive').addEventListener('click', () => { driveDialog.showModal(); void loadDriveStatus(); });
