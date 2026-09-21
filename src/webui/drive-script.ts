@@ -20,6 +20,7 @@ export const driveScript = String.raw`
   const refreshButton = document.getElementById('refresh-files');
   const dialog = document.getElementById('delete-dialog');
   const toast = document.getElementById('toast');
+  const toastHome = toast.parentElement;
   const uploadDialog = document.getElementById('upload-dialog');
   const shareDialog = document.getElementById('share-dialog');
   const connectionDialog = document.getElementById('connection-dialog');
@@ -77,6 +78,12 @@ export const driveScript = String.raw`
   }
   const formatDate = value => new Date(value).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+  function hideToast() {
+    clearTimeout(toastTimer);
+    if (typeof toast.hidePopover === 'function' && toast.matches(':popover-open')) toast.hidePopover();
+    toast.hidden = true;
+    if (toast.parentElement !== toastHome) toastHome.appendChild(toast);
+  }
   function showToast(message, type = 'success', sticky = false) {
     clearTimeout(toastTimer);
     document.getElementById('toast-message').textContent = message;
@@ -84,10 +91,17 @@ export const driveScript = String.raw`
     icon.className = type === 'working' ? 'spinner' : '';
     icon.textContent = type === 'success' ? '✓' : type === 'error' ? '!' : '';
     toast.dataset.type = type;
+    const openDialogs = Array.from(document.querySelectorAll('dialog[open]'));
+    const host = openDialogs[openDialogs.length - 1] || toastHome;
+    if (toast.parentElement !== host) {
+      if (typeof toast.hidePopover === 'function' && toast.matches(':popover-open')) toast.hidePopover();
+      host.appendChild(toast);
+    }
     toast.hidden = false;
-    if (!sticky) toastTimer = setTimeout(() => { toast.hidden = true; }, 6500);
+    if (typeof toast.showPopover === 'function' && !toast.matches(':popover-open')) toast.showPopover();
+    if (!sticky) toastTimer = setTimeout(hideToast, 6500);
   }
-  document.getElementById('dismiss-toast').addEventListener('click', () => { clearTimeout(toastTimer); toast.hidden = true; });
+  document.getElementById('dismiss-toast').addEventListener('click', hideToast);
 
   function controls() {
     refreshButton.disabled = refreshing || busy.size > 0;
@@ -639,40 +653,45 @@ export const driveScript = String.raw`
   const driveStatus = document.getElementById('drive-status');
   const driveConnection = document.getElementById('drive-connection');
   const disconnectDrive = document.getElementById('disconnect-drive');
+  function setDriveStatus(message, type = 'info') {
+    driveStatus.textContent = message;
+    driveStatus.dataset.type = type;
+    if (type === 'error') requestAnimationFrame(() => driveStatus.scrollIntoView({ block: 'nearest' }));
+  }
   function driveRequest(method, body) {
     return fetchWithTimeout('/api/drive', { method, headers: { 'X-VBook-Action': 'drive', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
   }
   async function loadDriveStatus() {
-    driveStatus.textContent = 'Đang kiểm tra cấu hình…';
+    setDriveStatus('Đang kiểm tra cấu hình…');
     try {
       const response = await fetchWithTimeout('/api/drive', {});
       if (!response.ok) throw new Error();
       const data = await response.json();
-      driveStatus.textContent = !data.available ? 'Máy chủ chưa bật lưu khóa an toàn. Liên hệ người vận hành.' : data.configured ? 'Đã liên kết một thư mục Google Drive.' : 'Chưa liên kết thư mục Google Drive.';
+      setDriveStatus(!data.available ? 'Máy chủ chưa bật lưu khóa an toàn. Liên hệ người vận hành.' : data.configured ? 'Đã liên kết một thư mục Google Drive.' : 'Chưa liên kết thư mục Google Drive.', data.available ? 'info' : 'error');
       driveConnection.hidden = !data.configured;
       disconnectDrive.hidden = !data.configured;
       document.getElementById('drive-webdav-url').value = data.url;
-    } catch { driveStatus.textContent = 'Không đọc được trạng thái Google Drive.'; }
+    } catch { setDriveStatus('Không đọc được trạng thái Google Drive.', 'error'); }
   }
   document.getElementById('manage-drive').addEventListener('click', () => { driveDialog.showModal(); void loadDriveStatus(); });
   driveDialog.addEventListener('close', () => { document.getElementById('drive-api-key').value = ''; });
   document.getElementById('close-drive').addEventListener('click', () => driveDialog.close());
   document.getElementById('drive-form').addEventListener('submit', async event => {
     event.preventDefault();
-    driveStatus.textContent = 'Đang kiểm tra thư mục Google Drive…';
+    setDriveStatus('Đang kiểm tra thư mục Google Drive…');
     const submit = event.currentTarget.querySelector('[type=submit]');
     submit.disabled = true;
     try {
     const response = await driveRequest('PUT', { url: document.getElementById('drive-folder-url').value, apiKey: document.getElementById('drive-api-key').value });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) { driveStatus.textContent = data.error || 'Không liên kết được Google Drive.'; showToast(driveStatus.textContent, 'error'); return; }
-    driveStatus.textContent = 'Đã liên kết thư mục Google Drive.';
+    if (!response.ok) { setDriveStatus(data.error || 'Không liên kết được Google Drive.', 'error'); return; }
+    setDriveStatus('Đã liên kết thư mục Google Drive.', 'success');
     driveConnection.hidden = false;
     disconnectDrive.hidden = false;
     document.getElementById('drive-webdav-url').value = data.url;
     document.getElementById('drive-api-key').value = '';
     showToast('Đã liên kết Google Drive với WebDAV.');
-    } catch { driveStatus.textContent = 'Không kết nối được máy chủ. Vui lòng thử lại.'; }
+    } catch { setDriveStatus('Không kết nối được máy chủ. Vui lòng thử lại.', 'error'); }
     finally { submit.disabled = false; }
   });
   disconnectDrive.addEventListener('click', async () => {

@@ -166,6 +166,43 @@ test('Google Drive dialog explains the independent read-only WebDAV connection',
   await dialog.screenshot({ path: '/tmp/vbook-drive-dialog.png' });
 });
 
+test('invalid Google Drive credentials show an unobstructed inline error', async t => {
+  const { page } = await openDrive(t, { files: [], width: 390, height: 740 });
+  await page.route('**/api/drive', route => route.request().method() === 'PUT'
+    ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Link thư mục hoặc API key không hợp lệ.' }) })
+    : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true, configured: false, url: '' }) }));
+  await page.getByRole('button', { name: 'Liên kết Google Drive', exact: true }).click();
+  await page.getByLabel('Link thư mục Google Drive').fill('https://drive.google.com/drive/folders/ROOT_FOLDER_12345');
+  await page.getByLabel('Google Drive API key của bạn').fill('invalid-test-key');
+  await page.getByRole('button', { name: 'Liên kết', exact: true }).click();
+  await waitText(page, 'drive-status', 'Link thư mục hoặc API key không hợp lệ.');
+  assert.equal(await page.locator('#drive-status').getAttribute('data-type'), 'error');
+  assert.equal(await page.locator('#toast').evaluate(toast => toast.matches(':popover-open')), false);
+  assert.equal(await page.locator('#drive-status').evaluate(status => {
+    const box = status.getBoundingClientRect();
+    const x = Math.max(0, Math.min(innerWidth - 1, box.left + box.width / 2));
+    const y = Math.max(0, Math.min(innerHeight - 1, box.top + box.height / 2));
+    return box.top >= 0 && box.bottom <= innerHeight && document.elementFromPoint(x, y)?.closest('#drive-status') === status;
+  }), true);
+});
+
+test('toast stays above an open modal dialog', async t => {
+  const { page } = await openDrive(t, { files: [{ name: 'library/book.epub', size: 20 }] });
+  await page.getByRole('button', { name: 'Chia sẻ', exact: true }).click();
+  await page.getByLabel('Tên gợi nhớ').fill('Thiết bị thử nghiệm');
+  await page.route('**/api/shares', route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Không tạo được kết nối thử nghiệm.' }) })
+    : route.continue());
+  await page.getByRole('button', { name: 'Tạo kết nối', exact: true }).click();
+  await waitText(page, 'toast-message', 'Không tạo được kết nối thử nghiệm');
+  assert.equal(await page.locator('#share-dialog').evaluate(dialog => dialog.open), true);
+  assert.equal(await page.locator('#toast').evaluate(toast => toast.matches(':popover-open')), true);
+  assert.equal(await page.locator('#toast').evaluate(toast => {
+    const box = toast.getBoundingClientRect();
+    return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest('#toast') === toast;
+  }), true);
+});
+
 test('user edits, reloads and restores book metadata', { timeout: 20000 }, async t => {
   const { page } = await openDrive(t, { files: [{ name: 'library/book.epub', size: 20 }] });
   await page.getByRole('button', { name: 'Sửa thông tin book.epub', exact: true }).click();
