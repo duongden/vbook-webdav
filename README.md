@@ -150,11 +150,14 @@ Nếu thấy nguồn nhưng cài không được: kiểm tra `path` có trỏ đ
 
 - Hai nút icon **Danh sách chi tiết** và **Dạng lưới** đổi cách hiển thị cả tệp lẫn thư mục. Trình duyệt ghi nhớ lựa chọn này.
 - Tick ô cạnh từng tệp/thư mục để chọn nhiều mục. **Chọn tất cả đang hiển thị** chọn các mục trên trang hiện tại; **Bỏ chọn** hoặc phím **Esc** xóa lựa chọn. Mục bị ẩn khi đổi thư mục, tìm kiếm hoặc chuyển trang sẽ được bỏ chọn.
+- Chọn đúng một tệp hoặc thư mục rồi bấm **Đổi tên**. Tên mới chỉ được thay đổi trong thư mục hiện tại; không dùng dấu `/`, `\\`, `.` hoặc `..`.
+- Chọn một hoặc nhiều mục rồi bấm **Sao chép**. Mở thư mục đích và bấm **Dán vào đây**. Bản gốc được giữ nguyên; bản sao dùng thêm quota và giữ metadata sách đã chỉnh sửa. Nếu đích đã có mục trùng tên, thao tác dừng mà không ghi đè.
 - Kéo một mục đã chọn để chuyển cả nhóm. Nếu chọn cả thư mục và tệp bên trong, thư mục chỉ được chuyển một lần. Nhóm được xử lý lần lượt; nếu có lỗi hoặc tác vụ còn chờ, các mục tiếp theo chưa được chuyển và giao diện báo tiến độ thực tế.
 - Trên máy tính, kéo tệp hoặc thư mục thả vào thư mục đích. Có thể thả lên tên thư mục trên thanh đường dẫn để chuyển về thư mục cha hoặc thư mục gốc.
 - Trên màn hình cảm ứng, nhấn giữ tệp hoặc thư mục đến khi nhãn kéo xuất hiện, rồi kéo tới thư mục đích và thả. Vuốt bình thường vẫn cuộn trang. Cả list và grid đều hỗ trợ kéo thả, kể cả khi đang xem tất cả tệp.
 - Có thể thả tệp từ máy tính trực tiếp vào vùng quản lý hoặc lên một thư mục để mở hộp upload với đúng thư mục đích, rồi bấm **Tải lên**. Thư mục từ máy tính cần được tạo và upload các tệp bên trong theo từng cấp như hướng dẫn phía trên.
 - Thư mục được chuyển cùng toàn bộ nội dung. Nếu đích đã có mục trùng tên, thao tác bị từ chối; không ghi đè. Không thể chuyển một thư mục vào chính nó hoặc thư mục con của nó. Mục trong **Lịch sử** không hỗ trợ di chuyển.
+- Không thể đổi tên, sao chép hoặc dán vào **Lịch sử**. Với thư mục lớn, thao tác sao chép có thể tiếp tục dưới nền; bấm **Làm mới** để kiểm tra trước khi thử lại.
 - Với thư mục lớn hoặc khi mất kết nối, máy chủ tiếp tục công việc đã nhận. Bấm **Làm mới** để kiểm tra kết quả trước khi thử lại.
 
 ### Upload tệp
@@ -263,6 +266,8 @@ Lịch sử không tự xóa và mỗi bản dùng dung lượng riêng. Một b
 
 ## Xóa file và giải phóng dung lượng
 
+### Xóa một file
+
 1. Chọn biểu tượng **thùng rác** cạnh file.
 2. Đọc lại đúng tên file trong hộp xác nhận.
 3. Chọn **Xóa tệp**.
@@ -272,6 +277,18 @@ Lịch sử không tự xóa và mỗi bản dùng dung lượng riêng. Một b
 File đã xóa không có thùng rác để khôi phục. Xóa bản hiện tại không tự xóa các bản cũ trong **Lịch sử**.
 
 Nếu nút chuyển thành **Kiểm tra lại**, máy chủ chưa xác nhận được kết quả. Chờ một lúc rồi chọn nút đó hoặc bấm **Làm mới**. Không gửi yêu cầu xóa liên tục.
+
+### Xóa nhiều file hoặc thư mục
+
+1. Tick các file và thư mục cần xóa, hoặc chọn **Chọn tất cả đang hiển thị**.
+2. Chọn **Xóa mục đã chọn**.
+3. Kiểm tra số mục gốc trong hộp xác nhận rồi chọn **Xóa**.
+
+Nếu đã chọn cả thư mục và file bên trong, hệ thống chỉ xóa thư mục một lần. Các mục được xóa tuần tự; khi một tác vụ còn chờ hoặc gặp lỗi, hệ thống dừng ở mục đó và giữ nguyên các mục chưa xử lý.
+
+### Xóa toàn bộ lịch sử
+
+Chọn **Xóa toàn bộ lịch sử** ở khu vực bộ lọc, đọc cảnh báo rồi chọn **Xóa lịch sử**. Thao tác này xóa mọi phiên bản cũ trong `backup-history/` nhưng giữ nguyên các file hiện tại. Nút được vô hiệu hóa khi không còn bản lịch sử nào.
 
 ## Chia sẻ thư viện chỉ đọc
 

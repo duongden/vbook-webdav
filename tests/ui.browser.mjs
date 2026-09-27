@@ -392,6 +392,18 @@ test('clean mobile preview has a visible brand and no horizontal overflow', asyn
   const { page } = await openDrive(t, { width: 390, height: 844, files: [...defaultFiles, { name: 'library/Sách mẫu.epub', size: 24_000 }] });
   assert.equal(await page.locator('.brand').innerText(), 'VBook');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  const toolbarButtons = await page.locator('.panel-actions .icon-button').evaluateAll(nodes => nodes.map(button => ({
+    width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height,
+    title: button.title, label: button.getAttribute('aria-label'), icons: button.querySelectorAll('svg').length,
+  })));
+  assert.equal(toolbarButtons.length, 5);
+  assert.ok(toolbarButtons.every(button => button.width === 40 && button.height === 40 && button.title && button.label && button.icons === 1));
+  const compactGap = await page.evaluate(() => {
+    const selection = document.querySelector('.selection-controls').getBoundingClientRect();
+    const navigation = document.querySelector('.folder-navigation').getBoundingClientRect();
+    return navigation.top - selection.bottom;
+  });
+  assert.ok(compactGap <= 1);
   await page.screenshot({ path: '/tmp/vbook-drive-mobile.png', fullPage: true });
   await page.getByRole('button', { name: 'Xóa Ghi chú & dấu trang.txt', exact: true }).click();
   await page.screenshot({ path: '/tmp/vbook-drive-delete-dialog.png' });
@@ -592,6 +604,70 @@ for (const layout of ['list', 'grid']) test(layout + ': multiple selection, dese
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('[data-select-path]:checked').count(), 0);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
+test('selected files and folders are deleted once with parent folders collapsing descendants', { timeout: 20000 }, async t => {
+  const { page, username } = await openDrive(t, { files: [
+    { name: 'one.txt', size: 3 }, { name: 'source/plugin.json', size: 5 }, { name: 'source/src/main.js', size: 7 }, { name: 'keep/keep.txt', size: 9 }
+  ] });
+  await page.getByLabel('Chọn one.txt', { exact: true }).check();
+  await page.getByLabel('Chọn source', { exact: true }).check();
+  await page.getByLabel('Chọn source/plugin.json', { exact: true }).check();
+  await page.getByRole('button', { name: 'Xóa mục đã chọn', exact: true }).click();
+  await page.getByRole('heading', { name: 'Xóa các mục đã chọn?', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Xóa 2 mục', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã xóa 2 mục');
+  await waitText(page, 'sync-note', 'Vừa cập nhật');
+  assert.equal(await bucket.head(username + '/one.txt'), null);
+  assert.equal((await bucket.list({ prefix: username + '/source/' })).objects.length, 0);
+  assert.ok(await bucket.head(username + '/keep/keep.txt'));
+  assert.equal(await page.locator('[data-select-path]:checked').count(), 0);
+});
+
+test('clear history removes every historical file and preserves current files', { timeout: 20000 }, async t => {
+  const { page, username } = await openDrive(t, { files: [
+    { name: 'current/book.epub', size: 11 },
+    { name: 'backup-history/2026-09-01_01-02-03_UTC+7_a/current/book.epub', size: 7 },
+    { name: 'backup-history/2026-09-02_01-02-03_UTC+7_b/other.zip', size: 5 },
+  ] });
+  await page.getByRole('button', { name: 'Xóa toàn bộ lịch sử', exact: true }).click();
+  await page.getByRole('heading', { name: 'Xóa toàn bộ lịch sử?', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Xóa lịch sử', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã xóa toàn bộ lịch sử');
+  await waitText(page, 'sync-note', 'Vừa cập nhật');
+  assert.equal((await bucket.list({ prefix: username + '/backup-history/' })).objects.length, 0);
+  assert.ok(await bucket.head(username + '/current/book.epub'));
+  assert.equal(await page.getByRole('button', { name: 'Xóa toàn bộ lịch sử', exact: true }).isDisabled(), true);
+});
+
+test('user renames files and folders, then copies a folder into the open destination', { timeout: 20000 }, async t => {
+  const { page, username } = await openDrive(t, { files: [
+    { name: 'source/book.txt', size: 5 }, { name: 'target/keep.txt', size: 4 },
+  ] });
+  await page.getByLabel('Chọn source/book.txt', { exact: true }).check();
+  await page.getByRole('button', { name: 'Đổi tên', exact: true }).click();
+  await page.getByLabel('Tên mới', { exact: true }).fill('renamed.txt');
+  await page.getByRole('button', { name: 'Đổi tên', exact: true }).last().click();
+  await waitText(page, 'toast-message', 'Đã đổi tên thành renamed.txt');
+  assert.equal(await bucket.head(username + '/source/book.txt'), null);
+  assert.ok(await bucket.head(username + '/source/renamed.txt'));
+
+  await page.getByLabel('Chọn source', { exact: true }).check();
+  await page.getByRole('button', { name: 'Đổi tên', exact: true }).click();
+  await page.getByLabel('Tên mới', { exact: true }).fill('renamed-source');
+  await page.getByRole('button', { name: 'Đổi tên', exact: true }).last().click();
+  await waitText(page, 'toast-message', 'Đã đổi tên thành renamed-source');
+  assert.equal((await bucket.list({ prefix: username + '/source/' })).objects.length, 0);
+  assert.ok(await bucket.head(username + '/renamed-source/renamed.txt'));
+
+  await page.getByLabel('Chọn renamed-source', { exact: true }).check();
+  await page.getByRole('button', { name: 'Sao chép', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã sao chép 1 mục');
+  await page.getByRole('button', { name: 'Mở thư mục target', exact: true }).click();
+  await page.getByRole('button', { name: 'Dán 1 mục vào đây', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã sao chép renamed-source');
+  assert.ok(await bucket.head(username + '/renamed-source/renamed.txt'));
+  assert.ok(await bucket.head(username + '/target/renamed-source/renamed.txt'));
 });
 
 test('extension link action survives refresh and revokes the generated URL', async t => {

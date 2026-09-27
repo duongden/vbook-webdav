@@ -547,6 +547,18 @@ test('dated history preserves old content, stays user-scoped and supports manual
   assert.equal(await (await request(name, '/folder/backup.zip')).text(), 'new backup');
 });
 
+test('deleting the history root clears every old version and preserves current files', async () => {
+  const name = await user('clear_history');
+  await bucket.put(`${name}/current/book.epub`, 'current');
+  await bucket.put(`${name}/backup-history/first/current/book.epub`, 'old-one');
+  await bucket.put(`${name}/backup-history/second/other.zip`, 'old-two');
+  assert.equal(await usage(name), 21);
+  assert.equal((await request(name, '/webdav/backup-history', 'DELETE')).status, 204);
+  assert.equal((await bucket.list({ prefix: `${name}/backup-history/` })).objects.length, 0);
+  assert.equal(await (await bucket.get(`${name}/current/book.epub`)).text(), 'current');
+  assert.equal(await usage(name), 7);
+});
+
 test('history quota rejects overwrite without losing current file', async () => {
   const name = await user('history_quota');
   assert.equal((await request(name, '/backup', 'PUT', new Uint8Array(700000))).status, 201);
@@ -621,6 +633,40 @@ test('MOVE preserves content, metadata and quota; rejects collisions, cycles and
   assert.equal((await request('move_other', '/webdav/library/dest/src', 'MOVE', undefined, { Destination: 'https://test.local/webdav/stolen' })).status, 404);
   assert.equal((await move('library/dest/src/book.txt', 'library/dest/book.txt')).status, 201);
   assert.equal(await usage(name), 5);
+});
+
+test('COPY preserves sources, duplicates metadata, enforces quota and rejects unsafe destinations', async () => {
+  const name = await user('copy_owner');
+  await request(name, '/webdav/library/src/book.txt', 'PUT', 'hello');
+  await request(name, '/webdav/library/dest/', 'MKCOL');
+  await request(name, '/api/metadata', 'PUT', JSON.stringify({ path: 'library/src/book.txt', metadata: { title: 'Book' } }), { 'X-VBook-Action': 'metadata', 'Content-Type': 'application/json' });
+  const copy = (source, destination, headers = {}) => request(name, '/webdav/' + source, 'COPY', undefined, { Destination: 'https://test.local/webdav/' + destination, ...headers });
+  assert.equal((await copy('library/src', 'library/src/child')).status, 409);
+  assert.equal((await copy('library/src', 'library/dest', { Origin: 'https://evil.test' })).status, 403);
+  assert.equal((await copy('library/src', 'library/dest/src', { Destination: 'https://evil.test/webdav/src' })).status, 403);
+  assert.equal((await copy('library/src', 'backup-history/src')).status, 403);
+  assert.equal((await copy('library/src', 'library/dest/src')).status, 201);
+  assert.equal(await (await bucket.get(name + '/library/src/book.txt')).text(), 'hello');
+  assert.equal(await (await bucket.get(name + '/library/dest/src/book.txt')).text(), 'hello');
+  const metadata = await (await request(name, '/api/metadata')).json();
+  assert.deepEqual(metadata.records.map(record => record.path).sort(), [name + '/library/dest/src/book.txt', name + '/library/src/book.txt']);
+  assert.equal(await usage(name), 10);
+  assert.equal((await copy('library/src', 'library/dest/src')).status, 412);
+
+  const limited = await user('copy_quota', 0.000006, 1);
+  await bucket.put(limited + '/source.txt', 'hello');
+  assert.equal((await request(limited, '/webdav/source.txt', 'COPY', undefined, { Destination: 'https://test.local/webdav/copied.txt' })).status, 507);
+  assert.equal(await bucket.head(limited + '/copied.txt'), null);
+});
+
+test('large folder COPY resumes and accounts every copied byte once', async () => {
+  const name = await user('copy_many');
+  for (let i = 0; i < 25; i++) await bucket.put(name + '/tree/' + i, 'data');
+  const response = await request(name, '/webdav/tree', 'COPY', undefined, { Destination: 'https://test.local/webdav/copied' });
+  assert.equal(response.status, 202);
+  assert.equal(await usage(name), 200);
+  assert.equal((await bucket.list({ prefix: name + '/tree/' })).objects.length, 25);
+  assert.equal((await bucket.list({ prefix: name + '/copied/' })).objects.length, 25);
 });
 
 test('large folder MOVE resumes before new writes and preserves every file', async () => {

@@ -26,10 +26,14 @@ export const driveScript = String.raw`
   const connectionDialog = document.getElementById('connection-dialog');
   const metadataDialog = document.getElementById('metadata-dialog');
   const driveDialog = document.getElementById('drive-dialog');
+  const renameDialog = document.getElementById('rename-dialog');
   const metadataForm = document.getElementById('metadata-form');
   const busy = new Set();
   const selectedPaths = new Set();
   let selected = null;
+  let deleteAction = null;
+  let copiedPaths = [];
+  let renameSource = null;
   let page = 1;
   let backupFilter = 'all';
   let currentFolder = '';
@@ -106,6 +110,21 @@ export const driveScript = String.raw`
   function controls() {
     refreshButton.disabled = refreshing || busy.size > 0;
     refreshButton.querySelector('span').textContent = refreshing ? 'Đang làm mới…' : 'Làm mới';
+    document.getElementById('delete-selected').disabled = !selectedPaths.size || refreshing || busy.size > 0;
+    document.getElementById('clear-history').disabled = !rows().some(row => row.dataset.name.startsWith('backup-history/')) || refreshing || busy.size > 0;
+    updateTransferControls();
+  }
+  function updateTransferControls() {
+    const selected = [...selectedPaths];
+    const unavailable = refreshing || busy.size > 0 || moving || groupMoving;
+    document.getElementById('rename-selected').disabled = unavailable || selected.length !== 1 || selected[0].startsWith('backup-history/');
+    document.getElementById('copy-selected').disabled = unavailable || !selected.length || selected.some(path => path.startsWith('backup-history/'));
+    const paste = document.getElementById('paste-selected');
+    paste.disabled = unavailable || !copiedPaths.length;
+    const pasteLabel = copiedPaths.length ? 'Dán ' + copiedPaths.length + ' mục vào đây' : 'Dán vào đây';
+    paste.setAttribute('aria-label', pasteLabel);
+    paste.title = pasteLabel;
+    document.getElementById('paste-label').textContent = pasteLabel;
   }
   function updateStats() {
     const all = rows();
@@ -142,6 +161,8 @@ export const driveScript = String.raw`
     all.disabled = !boxes.length;
     document.getElementById('selection-count').textContent = selectedPaths.size + ' mục đã chọn';
     document.getElementById('deselect-all').disabled = !selectedPaths.size;
+    document.getElementById('delete-selected').disabled = !selectedPaths.size || refreshing || busy.size > 0;
+    updateTransferControls();
   }
   filesPanel.addEventListener('change', event => {
     const path = event.target.dataset.selectPath;
@@ -191,6 +212,7 @@ export const driveScript = String.raw`
     document.querySelector('.pagination').hidden = pages <= 1;
     const childCount = renderFolderNavigation(query);
     updateSelection();
+    document.getElementById('clear-history').disabled = !all.some(row => row.dataset.name.startsWith('backup-history/')) || refreshing || busy.size > 0;
     document.getElementById('file-count').textContent = visible;
     document.getElementById('empty-state').hidden = visible > 0 || childCount > 0;
     document.getElementById('empty-title').textContent = all.length ? 'Không tìm thấy tệp phù hợp' : 'Kho lưu trữ đang trống';
@@ -320,6 +342,63 @@ export const driveScript = String.raw`
     }
     return state;
   }
+  function rootPaths(paths) {
+    return [...new Set(paths)].filter(path => !paths.some(parent => parent !== path && path.startsWith(parent + '/')));
+  }
+  function openDeleteDialog(action) {
+    deleteAction = action;
+    document.getElementById('delete-title').textContent = action.title;
+    document.getElementById('delete-description').textContent = action.description;
+    document.getElementById('delete-name').textContent = action.name;
+    document.getElementById('confirm-delete').textContent = action.confirm;
+    clearTimeout(toastTimer);
+    toast.hidden = true;
+    dialog.showModal();
+  }
+  async function requestDelete(path) {
+    const url = '/webdav/' + encodePath(path);
+    let response;
+    try { response = await fetchWithTimeout(url, { method: 'DELETE' }, 15000); }
+    catch { /* The server may have accepted the deletion before the connection failed. */ }
+    if (response && (response.status === 200 || response.status === 204)) return { state: 'deleted' };
+    if (response && (response.status === 401 || response.status === 403)) return { state: 'auth' };
+    const checked = await checkDeleted(url);
+    if (checked === 'missing') return { state: 'deleted' };
+    if (checked === 'auth') return { state: 'auth' };
+    if (!response || checked === 'unknown' || response.status === 202 || (response.status === 503 && response.headers.get('Retry-After'))) return { state: 'pending' };
+    return { state: 'failed', status: response.status };
+  }
+  async function deletePaths(paths, history = false) {
+    const roots = rootPaths(paths);
+    if (!roots.length || refreshing || busy.size) return;
+    const operation = history ? 'history' : 'bulk-delete';
+    busy.add(operation); controls(); updateSelection();
+    let completed = 0;
+    let stopped = null;
+    try {
+      for (const path of roots) {
+        showToast(history ? 'Đang xóa toàn bộ lịch sử…' : 'Đang xóa ' + (completed + 1) + '/' + roots.length + ' mục…', 'working', true);
+        const result = await requestDelete(path);
+        if (result.state !== 'deleted') { stopped = result; break; }
+        completed++;
+        for (const selectedPath of [...selectedPaths]) {
+          if (selectedPath === path || selectedPath.startsWith(path + '/')) selectedPaths.delete(selectedPath);
+        }
+      }
+    } finally {
+      busy.delete(operation); controls(); updateSelection();
+    }
+    await refreshFiles(true);
+    if (completed === roots.length) {
+      showToast(history ? 'Đã xóa toàn bộ lịch sử.' : 'Đã xóa ' + completed + ' mục.');
+    } else if (stopped?.state === 'auth') {
+      showToast('Không có quyền xóa. Hãy đăng nhập lại hoặc liên hệ quản trị viên.', 'error');
+    } else if (stopped?.state === 'failed') {
+      showToast('Đã xóa ' + completed + '/' + roots.length + ' mục. Mục tiếp theo vẫn còn (HTTP ' + stopped.status + ').', 'error', true);
+    } else {
+      showToast('Đã xóa ' + completed + '/' + roots.length + ' mục. Tác vụ còn lại đang chờ; hãy làm mới để kiểm tra.', 'pending', true);
+    }
+  }
   async function deleteFile(row, verifyOnly = false) {
     const name = row.dataset.name;
     if (!row.isConnected || busy.has(name) || refreshing) return;
@@ -378,18 +457,80 @@ export const driveScript = String.raw`
     const row = button.closest('[data-file]');
     if (row.dataset.state === 'pending') { void deleteFile(row, true); return; }
     selected = row;
-    clearTimeout(toastTimer);
-    toast.hidden = true;
-    document.getElementById('delete-name').textContent = row.dataset.name;
-    dialog.showModal();
+    openDeleteDialog({
+      type: 'single', title: 'Xóa tệp này?',
+      description: 'Tệp sẽ được xóa khỏi kho lưu trữ. Thao tác này không thể hoàn tác.',
+      name: row.dataset.name, confirm: 'Xóa tệp',
+    });
+  });
+  document.getElementById('delete-selected').addEventListener('click', () => {
+    const paths = rootPaths([...selectedPaths]);
+    if (!paths.length) return;
+    openDeleteDialog({
+      type: 'bulk', paths, title: 'Xóa các mục đã chọn?',
+      description: 'Các tệp và toàn bộ nội dung trong thư mục đã chọn sẽ bị xóa. Thao tác này không thể hoàn tác.',
+      name: paths.length + ' mục', confirm: 'Xóa ' + paths.length + ' mục',
+    });
+  });
+  document.getElementById('clear-history').addEventListener('click', () => {
+    if (!rows().some(row => row.dataset.name.startsWith('backup-history/'))) return;
+    openDeleteDialog({
+      type: 'history', paths: ['backup-history'], title: 'Xóa toàn bộ lịch sử?',
+      description: 'Mọi phiên bản cũ trong Lịch sử sẽ bị xóa. Các tệp hiện tại được giữ nguyên. Thao tác này không thể hoàn tác.',
+      name: 'Toàn bộ lịch sử', confirm: 'Xóa lịch sử',
+    });
   });
   document.getElementById('cancel-delete').addEventListener('click', () => dialog.close());
   document.getElementById('confirm-delete').addEventListener('click', () => {
     const row = selected;
+    const action = deleteAction;
     dialog.close();
-    if (row) void deleteFile(row);
+    if (action?.type === 'single' && row) void deleteFile(row);
+    else if (action?.type === 'bulk') void deletePaths(action.paths);
+    else if (action?.type === 'history') void deletePaths(action.paths, true);
   });
-  dialog.addEventListener('close', () => { selected = null; });
+  dialog.addEventListener('close', () => { selected = null; deleteAction = null; });
+
+  document.getElementById('copy-selected').addEventListener('click', () => {
+    const paths = rootPaths([...selectedPaths]);
+    if (!paths.length || paths.some(path => path.startsWith('backup-history/'))) return;
+    copiedPaths = paths;
+    updateTransferControls();
+    showToast('Đã sao chép ' + paths.length + ' mục. Mở thư mục đích rồi chọn “Dán vào đây”.');
+  });
+  document.getElementById('paste-selected').addEventListener('click', () => { void pasteCopiedPaths(); });
+  document.getElementById('rename-selected').addEventListener('click', () => {
+    const paths = [...selectedPaths];
+    if (paths.length !== 1 || paths[0].startsWith('backup-history/')) return;
+    renameSource = paths[0];
+    document.getElementById('rename-source').textContent = 'Đang đổi tên: ' + renameSource;
+    document.getElementById('rename-name').value = baseName(renameSource);
+    document.getElementById('rename-status').textContent = '';
+    renameDialog.showModal();
+    document.getElementById('rename-name').select();
+  });
+  document.getElementById('cancel-rename').addEventListener('click', () => renameDialog.close());
+  document.getElementById('rename-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const source = renameSource;
+    const name = document.getElementById('rename-name').value.trim();
+    const status = document.getElementById('rename-status');
+    if (!source) return;
+    if (!name || name === '.' || name === '..' || /[\\/\u0000-\u001f\u007f]/.test(name)) {
+      status.textContent = 'Tên không hợp lệ. Không dùng dấu /, \\, tên . hoặc ..'; return;
+    }
+    if (name === baseName(source)) { status.textContent = 'Tên mới phải khác tên hiện tại.'; return; }
+    const parent = source.includes('/') ? source.slice(0, source.lastIndexOf('/')) : '';
+    const destination = (parent ? parent + '/' : '') + name;
+    renameDialog.close();
+    const completed = await transferPath(source, destination, 'MOVE', 'Đã đổi tên thành ' + name + '.');
+    if (completed) {
+      selectedPaths.clear();
+      if (copiedPaths.includes(source)) copiedPaths = [];
+      updateSelection();
+    }
+  });
+  renameDialog.addEventListener('close', () => { renameSource = null; });
 
   function metadataRequest(method, body) {
     return fetchWithTimeout('/api/metadata', { method, headers: { 'X-VBook-Action': 'metadata', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -772,7 +913,7 @@ export const driveScript = String.raw`
     if (groupMoving || moving) return;
     const paths = selectedPaths.has(source) ? [...selectedPaths] : [source];
     // Moving a parent already includes its selected descendants.
-    const roots = paths.filter(path => !paths.some(parent => path.startsWith(parent + '/')));
+    const roots = rootPaths(paths);
     if (roots.some(path => path.startsWith('backup-history/') || folder === path || folder.startsWith(path + '/'))) {
       showToast('Bỏ chọn lịch sử hoặc thư mục đích trước khi di chuyển nhóm.', 'error'); return;
     }
@@ -788,29 +929,51 @@ export const driveScript = String.raw`
   }
   async function moveItem(source, folder) {
     const destination = (folder ? folder + '/' : '') + baseName(source);
-    if (moving) return false;
     if (source === destination) return true;
     if (folder === source || folder.startsWith(source + '/')) {
       showToast('Không thể chuyển thư mục vào chính nó hoặc thư mục con của nó.', 'error'); return;
     }
+    return transferPath(source, destination, 'MOVE', 'Đã chuyển ' + baseName(source) + ' vào ' + (folder || 'thư mục gốc') + '.');
+  }
+  async function pasteCopiedPaths() {
+    if (!copiedPaths.length || groupMoving || moving || busy.size) return;
+    const sources = [...copiedPaths];
+    const pasteFolder = folderMode ? currentFolder : '';
+    if (sources.some(source => pasteFolder === source || pasteFolder.startsWith(source + '/'))) {
+      showToast('Không thể dán một thư mục vào chính nó hoặc thư mục con của nó.', 'error'); return;
+    }
+    groupMoving = true;
+    let completed = 0;
+    try {
+      for (const source of sources) {
+        const destination = (pasteFolder ? pasteFolder + '/' : '') + baseName(source);
+        if (source === destination) { showToast('Thư mục đích đang chứa mục gốc. Hãy chọn thư mục khác.', 'error'); break; }
+        if (!await transferPath(source, destination, 'COPY', 'Đã sao chép ' + baseName(source) + '.')) break;
+        completed++;
+      }
+      if (sources.length > 1 && completed) showToast('Đã dán ' + completed + '/' + sources.length + ' mục.' + (completed < sources.length ? ' Các mục còn lại chưa được sao chép.' : ''), completed < sources.length ? 'pending' : undefined);
+    } finally { groupMoving = false; updateTransferControls(); }
+  }
+  async function transferPath(source, destination, method, successMessage) {
+    if (moving) return false;
     moving = true; filesPanel.setAttribute('aria-busy', 'true');
     let completed = false;
     try {
       const response = await fetchWithTimeout('/webdav/' + encodePath(source), {
-        method: 'MOVE', headers: { Destination: new URL('/webdav/' + encodePath(destination), location.origin).href, Overwrite: 'F' }
+        method, headers: { Destination: new URL('/webdav/' + encodePath(destination), location.origin).href, Overwrite: 'F' }
       }, 60000);
       if (response.status === 202) {
-        showToast('Đang chuyển thư mục. Máy chủ sẽ tiếp tục xử lý; bấm Làm mới để kiểm tra.', 'pending');
+        showToast(method === 'COPY' ? 'Đang sao chép thư mục. Máy chủ sẽ tiếp tục xử lý; bấm Làm mới để kiểm tra.' : 'Đang chuyển thư mục. Máy chủ sẽ tiếp tục xử lý; bấm Làm mới để kiểm tra.', 'pending');
       } else if (response.ok) {
         completed = true;
-        showToast('Đã chuyển ' + baseName(source) + ' vào ' + (folder || 'thư mục gốc') + '.');
+        showToast(successMessage);
       } else {
-        showToast(response.status === 412 ? 'Thư mục đích đã có tệp hoặc thư mục trùng tên.' : response.status === 409 ? 'Không thể chuyển vào thư mục này. Hãy làm mới danh sách.' : 'Chưa chuyển xong. Hãy làm mới danh sách để kiểm tra trước khi thử lại.', 'error');
+        showToast(response.status === 412 ? 'Thư mục đích đã có tệp hoặc thư mục trùng tên.' : response.status === 507 ? 'Không đủ quota để sao chép mục này.' : response.status === 409 ? 'Không thể dùng thư mục đích này. Hãy làm mới danh sách.' : method === 'COPY' ? 'Chưa sao chép xong. Hãy làm mới danh sách để kiểm tra trước khi thử lại.' : 'Chưa chuyển xong. Hãy làm mới danh sách để kiểm tra trước khi thử lại.', 'error');
       }
       await refreshFiles(true);
     } catch {
-      showToast('Chưa xác nhận được kết quả chuyển. Máy chủ có thể vẫn đang xử lý; hãy làm mới danh sách.', 'pending');
-    } finally { moving = false; filesPanel.removeAttribute('aria-busy'); }
+      showToast(method === 'COPY' ? 'Chưa xác nhận được kết quả sao chép. Máy chủ có thể vẫn đang xử lý; hãy làm mới danh sách.' : 'Chưa xác nhận được kết quả chuyển. Máy chủ có thể vẫn đang xử lý; hãy làm mới danh sách.', 'pending');
+    } finally { moving = false; filesPanel.removeAttribute('aria-busy'); updateTransferControls(); }
     return completed;
   }
 
@@ -907,8 +1070,12 @@ export const driveScript = String.raw`
     const container = document.getElementById('folder-list');
     const breadcrumb = document.getElementById('folder-breadcrumb');
     container.replaceChildren(); breadcrumb.replaceChildren();
-    document.getElementById('toggle-folder-view').textContent = folderMode ? 'Xem tất cả tệp' : 'Duyệt thư mục';
-    document.getElementById('toggle-folder-view').setAttribute('aria-pressed', String(!folderMode));
+    const toggleFolderView = document.getElementById('toggle-folder-view');
+    const toggleLabel = folderMode ? 'Xem tất cả tệp' : 'Duyệt thư mục';
+    toggleFolderView.setAttribute('aria-label', toggleLabel);
+    toggleFolderView.title = toggleLabel;
+    toggleFolderView.querySelector('span').textContent = toggleLabel;
+    toggleFolderView.setAttribute('aria-pressed', String(!folderMode));
     document.getElementById('files-title').textContent = folderMode ? (currentFolder ? baseName(currentFolder) : 'Thư mục gốc') : 'Tất cả tệp';
     const crumb = (name, path, active) => {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'btn';

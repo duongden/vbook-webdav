@@ -144,3 +144,24 @@ test('interrupted MOVE resumes after copying without losing source content or do
   assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/moved/')).length, 3);
   assert.equal((await (await f.call(f.instance(), 'usage')).json()).bytes, 6);
 });
+
+test('interrupted COPY resumes without losing sources or double-counting copied bytes', async () => {
+  const f = fixture(3), object = f.instance();
+  const original = f.bucket.put;
+  let fail = true;
+  f.bucket.put = async (key, body, options) => {
+    if (fail && key === 'alice/copied/0') { fail = false; throw new Error('Interrupted copy'); }
+    return original(key, body, options);
+  };
+  await assert.rejects(object.fetch(new Request('https://internal/copy', {
+    method: 'POST', headers: {
+      'X-Storage-User': 'alice', 'X-Storage-Key': 'alice%2Ftree', 'X-Storage-Destination': 'alice%2Fcopied', 'X-Quota-MB': '1',
+    }
+  })), /Interrupted copy/);
+  assert.ok(f.objects.has('alice/tree/0'));
+  await object.alarm();
+  assert.equal(f.data.has('copy'), false);
+  assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/tree/')).length, 3);
+  assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/copied/')).length, 3);
+  assert.equal((await (await f.call(object, 'usage')).json()).bytes, 9);
+});

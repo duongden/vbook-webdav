@@ -10,6 +10,7 @@ const MAX_SHARES = 100;
 const DRIVE_CONFIG_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_DRIVE_CONFIGS = 20;
 interface MoveJob { source: string; destination: string; directory: boolean; usage: number; current?: string }
+interface CopyJob { source: string; destination: string; directory: boolean; usage: number; total: number; keys: string[]; cursor?: string; completeListing: boolean }
 interface DriveConfigRecord { id: string; label: string; folderId: string; encryptedKey: string; createdAt: number }
 
 
@@ -60,6 +61,9 @@ export class UserStorage {
     }
     if (await this.state.storage.get<MoveJob>('move')) {
       if (!await this.drainMove()) return new Response('Move in progress', { status: 503, headers: { 'Retry-After': '30' } });
+    }
+    if (await this.state.storage.get<CopyJob>('copy')) {
+      if (!await this.drainCopy()) return new Response('Copy in progress', { status: 503, headers: { 'Retry-After': '30' } });
     }
     if (action === '/usage') return Response.json({ bytes: await this.usage(username) });
     if (action === '/activate') {
@@ -145,6 +149,7 @@ export class UserStorage {
     if (!key.startsWith(`${username}/`)) return new Response('Forbidden', { status: 403 });
 
     if (action === '/move') return this.startMove(request, username, key);
+    if (action === '/copy') return this.startCopy(request, username, key);
 
     if (action === '/delete' || action === '/retire') {
       if (action === '/retire') {
@@ -400,6 +405,83 @@ export class UserStorage {
     return true;
   }
 
+  private async startCopy(request: Request, username: string, key: string): Promise<Response> {
+    let destination: string;
+    try { destination = decodeURIComponent(request.headers.get('X-Storage-Destination') || '').replace(/\/$/, ''); }
+    catch { return new Response('Invalid destination', { status: 400 }); }
+    const source = key.replace(/\/$/, '');
+    const root = username + '/';
+    const valid = (path: string) => path.startsWith(root) && path.length > root.length &&
+      !path.split('/').some(part => !part || part === '.' || part === '..') && !/[\\\x00-\x1f\x7f]/.test(path);
+    if (!valid(source) || !valid(destination)) return new Response('Forbidden', { status: 403 });
+    if ([source, destination].some(path => path === root + 'backup-history' || path.startsWith(root + 'backup-history/'))) return new Response('History is read-only', { status: 403 });
+    if (source === destination || destination.startsWith(source + '/')) return new Response('Invalid destination', { status: 409 });
+    if (await this.env.STORAGE_R2.head(destination) || (await this.env.STORAGE_R2.list({ prefix: destination + '/', limit: 1 })).objects.length) return new Response('Destination exists', { status: 412 });
+    const parent = destination.slice(0, destination.lastIndexOf('/') + 1);
+    if (parent !== root && (await this.env.STORAGE_R2.head(parent.slice(0, -1)) || !(await this.env.STORAGE_R2.list({ prefix: parent, limit: 1 })).objects.length)) return new Response('Parent not found', { status: 409 });
+    const file = await this.env.STORAGE_R2.head(source);
+    const children = await this.env.STORAGE_R2.list({ prefix: source + '/', limit: 1 });
+    if (!file && !children.objects.length) return new Response('Not Found', { status: 404 });
+    if (file && children.objects.length) return new Response('Ambiguous source', { status: 409 });
+    let total = 0;
+    let cursor: string | undefined;
+    do {
+      const batch = file ? { objects: [file], truncated: false as const } : await this.env.STORAGE_R2.list({ prefix: source + '/', cursor });
+      for (const object of batch.objects) {
+        if (new TextEncoder().encode(destination + object.key.slice(source.length)).length > 1024) return new Response('Path too long', { status: 414 });
+        total += object.size;
+        if (!Number.isSafeInteger(total)) return new Response('Copy too large', { status: 413 });
+      }
+      cursor = batch.truncated ? batch.cursor : undefined;
+    } while (cursor);
+    const quota = Number(request.headers.get('X-Quota-MB')) * MIB;
+    if (!Number.isFinite(quota) || quota <= 0) return new Response('Invalid quota configuration', { status: 503 });
+    const usage = await this.usage(username);
+    if (usage + total > quota) return new Response('Insufficient Storage', { status: 507 });
+    const job: CopyJob = {
+      source, destination, directory: !file, usage, total,
+      keys: file ? [source] : [], completeListing: Boolean(file),
+    };
+    await this.state.storage.put({ copy: job, dirty: true });
+    await this.state.storage.setAlarm(Date.now() + RETRY_MS);
+    return await this.drainCopy() ? new Response(null, { status: 201 }) : new Response('Copy in progress', { status: 202 });
+  }
+
+  private async drainCopy(): Promise<boolean> {
+    const job = await this.state.storage.get<CopyJob>('copy');
+    if (!job) return true;
+    for (let index = 0; index < 20; index++) {
+      if (!job.keys.length && !job.completeListing) {
+        const batch = await this.env.STORAGE_R2.list({ prefix: job.source + '/', cursor: job.cursor, limit: 20 });
+        job.keys = batch.objects.map(object => object.key);
+        job.cursor = batch.truncated ? batch.cursor : undefined;
+        job.completeListing = !batch.truncated;
+        await this.state.storage.put('copy', job);
+      }
+      const key = job.keys[0];
+      if (!key) break;
+      const target = job.destination + key.slice(job.source.length);
+      const object = await this.env.STORAGE_R2.get(key);
+      if (!object) throw new Error('Copy source disappeared');
+      if (!await this.env.STORAGE_R2.head(target)) {
+        await this.env.STORAGE_R2.put(target, object.body, { httpMetadata: object.httpMetadata, customMetadata: object.customMetadata });
+      }
+      const ownerLength = job.source.indexOf('/') + 1;
+      const metadata = await this.state.storage.get<BookMetadataRecord>('metadata:' + key.slice(ownerLength));
+      if (metadata) await this.state.storage.put('metadata:' + target.slice(ownerLength), { ...metadata, path: target, updated_at: Date.now() });
+      job.keys.shift();
+      await this.state.storage.put('copy', job);
+    }
+    if (job.keys.length || !job.completeListing) {
+      await this.state.storage.setAlarm(Date.now() + RETRY_MS);
+      return false;
+    }
+    await this.state.storage.put({ usage: job.usage + job.total, dirty: false });
+    await this.state.storage.delete('copy');
+    await this.state.storage.deleteAlarm();
+    return true;
+  }
+
   private busy(): Response {
     return new Response('Deletion in progress; retry shortly', { status: 503, headers: { 'Retry-After': '30' } });
   }
@@ -463,7 +545,7 @@ export class UserStorage {
 
   alarm(): Promise<void> {
     return this.exclusive(async () => {
-      try { await this.drainMove(); await this.drainDelete(); }
+      try { await this.drainMove(); await this.drainCopy(); await this.drainDelete(); }
       catch (error) {
         await this.state.storage.setAlarm(Date.now() + RETRY_MS);
         throw error;

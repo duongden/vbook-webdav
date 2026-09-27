@@ -113,7 +113,7 @@ export async function readWebDav(c: Context<AppEnv>, access: DavAccess, objectKe
   if (!objectKey.startsWith(access.rootKey)) return c.text('Forbidden', 403);
   const method = c.req.method;
   if (method === 'OPTIONS') {
-    c.header('Allow', access.writable ? 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, MOVE, PROPFIND' : 'OPTIONS, GET, HEAD, PROPFIND');
+    c.header('Allow', access.writable ? 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, MOVE, COPY, PROPFIND' : 'OPTIONS, GET, HEAD, PROPFIND');
     c.header('DAV', '1');
     return c.text('', 200);
   }
@@ -156,7 +156,7 @@ export const webdavHandler = async (c: Context<AppEnv>) => {
   if (objectKey === null) return c.text('Forbidden', 403);
 
   const method = c.req.method;
-  if (method === 'MOVE') {
+  if (method === 'MOVE' || method === 'COPY') {
     const origin = new URL(c.req.url).origin;
     if (c.req.header('Origin') && c.req.header('Origin') !== origin) return c.text('Forbidden', 403);
     const header = c.req.header('Destination');
@@ -168,7 +168,7 @@ export const webdavHandler = async (c: Context<AppEnv>) => {
       destination = requestObjectKey(username, url.href);
     } catch { return c.text('Invalid destination', 400); }
     if (!destination) return c.text('Forbidden', 403);
-    return storageRequest(c.env, username, 'move', { key: objectKey, destination });
+    return storageRequest(c.env, username, method === 'MOVE' ? 'move' : 'copy', { key: objectKey, destination, user: c.get('user') });
   }
   if (method === 'MKCOL' || method === 'PUT' || method === 'DELETE') {
     return storageRequest(c.env, username, method === 'MKCOL' ? 'mkcol' : method.toLowerCase(), {
