@@ -7,6 +7,7 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { hashPassword, generateSalt } from '../utils/crypto';
 import { adminStyles } from './admin-styles';
 import { bodyLimit } from 'hono/body-limit';
+import { FAVICON_LINK } from './favicon';
 
 const adminIcon = (path: string) => html`<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`;
 const editIcon = adminIcon('m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z M13.5 8l3 3');
@@ -117,6 +118,7 @@ adminApp.get('/login', (c) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login · Vân Du</title>
+      ${raw(FAVICON_LINK)}
       <style>${raw(adminStyles)}</style>
     </head>
     <body class="login-page">
@@ -150,7 +152,7 @@ adminApp.post('/login', async (c) => {
   if (attempts.count >= MAX_ATTEMPTS && Date.now() < attempts.until) {
     const remainingMinutes = Math.ceil((attempts.until - Date.now()) / 60000);
     return c.html(`<!DOCTYPE html><html lang="en">
-      <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Locked</title>
+      <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Locked</title>${raw(FAVICON_LINK)}
       <style>${adminStyles}</style></head>
       <body class="login-page">
         <div class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-danger/30 w-96 text-center">
@@ -181,7 +183,7 @@ adminApp.post('/login', async (c) => {
   );
   const remaining = MAX_ATTEMPTS - newCount;
   return c.html(`<!DOCTYPE html><html lang="en">
-    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title>
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title>${raw(FAVICON_LINK)}
     <style>${adminStyles}</style></head>
     <body class="login-page">
       <form method="POST" action="/admin/login" class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-secondary w-96">
@@ -237,6 +239,7 @@ adminApp.get('/', async (c) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Admin Dashboard · Vân Du</title>
+      ${raw(FAVICON_LINK)}
       <style>${raw(adminStyles)}</style>
     </head>
     <body class="admin-page p-8">

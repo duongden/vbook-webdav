@@ -76,6 +76,21 @@ async function usage(username) {
   return (await response.json()).bytes;
 }
 
+test('favicon is public, branded and cacheable', async () => {
+  for (const path of ['/favicon.svg', '/favicon.ico']) {
+    const response = await mf.dispatchFetch(`https://test.local${path}`);
+    assert.equal(response.status, 200, path);
+    assert.match(response.headers.get('content-type') || '', /^image\/svg\+xml/);
+    assert.match(response.headers.get('cache-control') || '', /max-age=604800/);
+    const icon = await response.text();
+    assert.match(icon, /fill="#315f49"/);
+    assert.match(icon, /stroke="#fff"/);
+  }
+
+  const login = await mf.dispatchFetch('https://test.local/admin/login');
+  assert.match(await login.text(), /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/);
+});
+
 // These requests pass through workerd, the actual R2 emulator and SQLite-backed DOs.
 test('admin-like paths never bypass authentication or create undefined-owned data', async () => {
   for (const path of ['/administrator/test', '/admin123/test', '/admin-other/test']) {

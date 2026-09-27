@@ -391,6 +391,10 @@ test('unavailable verification never reports success or removes a file', { timeo
 test('clean mobile preview has a visible brand and no horizontal overflow', async t => {
   const { page } = await openDrive(t, { width: 390, height: 844, files: [...defaultFiles, { name: 'library/Sách mẫu.epub', size: 24_000 }] });
   assert.equal(await page.locator('.brand').innerText(), 'VBook');
+  assert.equal(await page.locator('link[rel="icon"]').getAttribute('href'), '/favicon.svg');
+  const favicon = await page.request.get(baseURL + '/favicon.svg');
+  assert.equal(favicon.status(), 200);
+  assert.match(favicon.headers()['content-type'] || '', /^image\/svg\+xml/);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   const toolbarButtons = await page.locator('.panel-actions .icon-button').evaluateAll(nodes => nodes.map(button => ({
     width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height,

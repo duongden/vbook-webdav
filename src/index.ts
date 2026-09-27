@@ -7,6 +7,7 @@ import { webuiHandler, webuiDataHandler } from './webui/handler';
 import { shareApi, sharedApp } from './webdav/shares';
 import { metadataApi } from './webui/metadata';
 import { driveConfigApi, driveWebDavApp } from './webdav/google-drive';
+import { FAVICON_SVG } from './webui/favicon';
 
 import { extensionApi, extensionApp, shortExtensionApp } from './webdav/extensions';
 
@@ -22,6 +23,16 @@ app.use('*', async (c, next) => {
   if (new URL(c.req.url).protocol === 'https:') c.header('Strict-Transport-Security', 'max-age=31536000');
   await next();
 });
+
+const favicon = () => new Response(FAVICON_SVG, {
+  headers: {
+    'Content-Type': 'image/svg+xml; charset=UTF-8',
+    'Cache-Control': 'public, max-age=604800, immutable',
+  },
+});
+
+app.get('/favicon.svg', favicon);
+app.get('/favicon.ico', favicon);
 
 // Publicly reachable WebDAV shares use their own read-only credentials.
 app.route('/shared', sharedApp);
