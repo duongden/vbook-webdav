@@ -644,6 +644,25 @@ test('clear history removes every historical file and preserves current files', 
   assert.equal(await page.getByRole('button', { name: 'Xóa toàn bộ lịch sử', exact: true }).isDisabled(), true);
 });
 
+test('history view only selects historical files for deletion', { timeout: 20000 }, async t => {
+  const old = 'backup-history/2026-09-01_01-02-03_UTC+7_a/current/book.epub';
+  const { page, username } = await openDrive(t, { files: [
+    { name: 'current/book.epub', size: 11 },
+    { name: 'current/another.epub', size: 13 },
+    { name: old, size: 7 },
+  ] });
+  await page.getByRole('button', { name: 'Lịch sử', exact: true }).click();
+  assert.equal(await page.locator('#folder-list .folder-item').count(), 0);
+  await page.getByLabel('Chọn tất cả đang hiển thị').check();
+  assert.equal(await page.locator('[data-select-path]:checked').count(), 1);
+  await page.getByRole('button', { name: 'Xóa mục đã chọn', exact: true }).click();
+  await page.getByRole('button', { name: 'Xóa 1 mục', exact: true }).click();
+  await waitText(page, 'toast-message', 'Đã xóa 1 mục');
+  assert.equal(await bucket.head(username + '/' + old), null);
+  assert.ok(await bucket.head(username + '/current/book.epub'));
+  assert.ok(await bucket.head(username + '/current/another.epub'));
+});
+
 test('user renames files and folders, then copies a folder into the open destination', { timeout: 20000 }, async t => {
   const { page, username } = await openDrive(t, { files: [
     { name: 'source/book.txt', size: 5 }, { name: 'target/keep.txt', size: 4 },

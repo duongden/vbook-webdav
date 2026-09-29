@@ -371,6 +371,10 @@ export const driveScript = String.raw`
   async function deletePaths(paths, history = false) {
     const roots = rootPaths(paths);
     if (!roots.length || refreshing || busy.size) return;
+    if (backupFilter === 'history' && !history && roots.some(path => !path.startsWith('backup-history/'))) {
+      showToast('Mục đã chọn không thuộc Lịch sử. Hãy làm mới danh sách rồi thử lại.', 'error');
+      return;
+    }
     const operation = history ? 'history' : 'bulk-delete';
     busy.add(operation); controls(); updateSelection();
     let completed = 0;
@@ -1090,7 +1094,7 @@ export const driveScript = String.raw`
       crumb(part, parts.slice(0, index + 1).join('/'), index === parts.length - 1);
     });
     const prefix = currentFolder ? currentFolder + '/' : '';
-    const children = knownFolders.filter(folder => (!folderMode || (folder.startsWith(prefix) && !folder.slice(prefix.length).includes('/'))) && normalize(folder).includes(query));
+    const children = knownFolders.filter(folder => backupFilter !== 'history' && (!folderMode || (folder.startsWith(prefix) && !folder.slice(prefix.length).includes('/'))) && normalize(folder).includes(query));
     for (const folder of children) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'btn folder-target'; button.dataset.openFolder = folder; button.draggable = true; button.dataset.moveSource = folder;
       button.setAttribute('aria-label', 'Mở thư mục ' + (folderMode ? baseName(folder) : folder));
