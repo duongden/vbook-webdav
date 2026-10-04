@@ -277,7 +277,7 @@ adminApp.get('/', async (c) => {
                     Password
                     <span id="pwd-hint" class="text-slate-400 font-normal ml-1">(required)</span>
                   </label>
-                  <input id="f-password" type="password" name="password" minlength="12" maxlength="256"
+                  <input id="f-password" type="password" name="password" minlength="7" maxlength="256"
                     class="w-full bg-white rounded-lg p-2.5 text-slate-800 text-sm"
                     placeholder="Enter password">
                 </div>
@@ -505,8 +505,8 @@ adminApp.post('/user', async (c) => {
   if (mode === 'create' && !password) {
     return c.redirect(`/admin?err=${encodeURIComponent('Password is required for new users.')}`);
   }
-  if (password && (password.length < 12 || password.length > 256)) {
-    return c.redirect(`/admin?err=${encodeURIComponent('Password must contain 12 to 256 characters.')}`);
+  if (password && (password.length < 7 || password.length > 256)) {
+    return c.redirect(`/admin?err=${encodeURIComponent('Password must contain 7 to 256 characters.')}`);
   }
 
   let passwordHash = existing?.password_hash ?? '';

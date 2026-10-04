@@ -514,6 +514,39 @@ test('book metadata overrides are validated, tenant-scoped and removed with the 
 });
 
 
+test('admin accepts seven-character passwords for creation and reset, rejecting six characters', async () => {
+  const name = 'password_boundary';
+  const login = await mf.dispatchFetch('https://test.local/admin/login', { method: 'POST', body: new URLSearchParams({ pin }), redirect: 'manual' });
+  const session = login.headers.getSetCookie().find(v => v.startsWith('admin_session=') && !v.includes('Max-Age=0')).split(';')[0];
+  const dashboard = await mf.dispatchFetch('https://test.local/admin', { headers: { Cookie: session } });
+  const csrfCookie = dashboard.headers.getSetCookie().find(v => v.startsWith('csrf_token=')).split(';')[0];
+  const csrf = decodeURIComponent(csrfCookie.slice('csrf_token='.length));
+  assert.match(await dashboard.text(), /id="f-password"[^>]*minlength="7"/);
+  const save = (mode, pass) => mf.dispatchFetch('https://test.local/admin/user', {
+    method: 'POST', headers: { Cookie: `${session}; ${csrfCookie}` }, redirect: 'manual',
+    body: new URLSearchParams({ username: name, password: pass, _csrf: csrf, _mode: mode, quota_mb: '20', max_file_size_mb: '10', status: 'active' }),
+  });
+  for (const mode of ['create', 'edit']) {
+    const before = await kv.get(`user:${name}`);
+    for (const pass of ['123456', 'x'.repeat(257)]) {
+      const rejected = await save(mode, pass);
+      assert.equal(new URL(rejected.headers.get('Location'), 'https://test.local').searchParams.get('err'), 'Password must contain 7 to 256 characters.');
+      assert.equal(await kv.get(`user:${name}`), before);
+    }
+    const pass = mode === 'create' ? '1234567' : '7654321';
+    const accepted = await save(mode, pass);
+    assert.ok(new URL(accepted.headers.get('Location'), 'https://test.local').searchParams.has('ok'));
+    const authenticated = await mf.dispatchFetch('https://test.local/', {
+      headers: { Authorization: `Basic ${Buffer.from(`${name}:${pass}`).toString('base64')}`, Accept: 'application/json' },
+    });
+    assert.equal(authenticated.status, 200);
+  }
+  const before = await kv.get(`user:${name}`);
+  const unchanged = await save('edit', '');
+  assert.ok(new URL(unchanged.headers.get('Location'), 'https://test.local').searchParams.has('ok'));
+  assert.equal(await kv.get(`user:${name}`), before);
+});
+
 test('admin cannot reveal passwords and resetting an account disconnects Drive', async () => {
   const name = await user('vault_user');
   const login = await mf.dispatchFetch('https://test.local/admin/login', { method: 'POST', body: new URLSearchParams({ pin }), redirect: 'manual' });
