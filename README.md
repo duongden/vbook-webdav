@@ -44,7 +44,7 @@ Tên menu có thể khác tùy phiên bản ứng dụng. Nếu kiểm tra kết
 | --- | --- |
 | **Tất cả** | Hiển thị file hiện tại và lịch sử |
 | **Bản hiện tại** | Chỉ hiển thị file đang được ứng dụng sử dụng |
-| **Lịch sử** | Hiển thị những phiên bản cũ được giữ lại khi file bị ghi đè |
+| **Lịch sử** | Hiển thị các bản được giữ lại khi file bị ghi đè hoặc xóa |
 | Ô tìm kiếm | Tìm theo tên file, thư mục, tên truyện, tác giả hoặc metadata đã chỉnh sửa |
 | Ô sắp xếp | Sắp xếp theo ngày, tên hoặc dung lượng |
 | **Làm mới** | Tải lại danh sách từ máy chủ |
@@ -55,11 +55,12 @@ Mỗi trang hiển thị tối đa 20 file. Dùng các nút mũi tên ở cuối
 
 | Biểu tượng | Thao tác |
 | --- | --- |
+| Mắt xích | Lấy link chia sẻ; popup ghi rõ phạm vi tệp được phép tải |
 | Bút chì | Sửa thông tin truyện; chỉ có với file trong `library/` |
 | Mũi tên tải xuống | Tải file về thiết bị |
 | Thùng rác màu đỏ | Xóa file sau bước xác nhận |
 
-Trên điện thoại, các nút được thu gọn thành icon nhưng vẫn có vùng chạm lớn và giữ đúng thứ tự **Sửa → Tải xuống → Xóa**.
+Trên điện thoại, các nút được thu gọn thành icon nhưng vẫn có vùng chạm lớn và giữ đúng thứ tự **Lấy link → Sửa (nếu có) → Tải xuống → Xóa**.
 
 <img src="docs/images/mobile.png" alt="Trang quản lý trên điện thoại với các nút sửa, tải xuống và xóa dạng icon" width="390">
 
@@ -75,13 +76,23 @@ Bạn chọn nhiều file được, nhưng cần upload riêng từng cấp thư
 
 ## Tải truyện lên thư viện
 
+### Lấy link tệp trong mọi thư mục
+
+Mọi tệp lưu trên web đều có nút **Lấy link chia sẻ**, kể cả `vbook/plugin.json`, `vbook-backup/backup.zip` và các bản trong **Lịch sử**. Link không yêu cầu người nhận đăng nhập.
+
+- Với tệp trong thư mục: link cho phép đọc các tệp trong thư mục chứa nó và các thư mục con. Đọc phạm vi hiện trong popup trước khi gửi link; nên để nội dung muốn chia sẻ trong thư mục riêng.
+- Với tệp ở thư mục gốc: link chỉ cho phép tải đúng tệp được chọn.
+- Các link `vbookext` đã có vẫn giới hạn trong `vbookext/`; không tự mở quyền sang thư mục khác.
+- **Thu hồi link** vô hiệu hóa tất cả link tệp của tài khoản. Kết nối chia sẻ WebDAV được quản lý riêng.
+- Link giữ nguyên khi upload ghi đè đúng đường dẫn. Đổi tên hoặc di chuyển tệp sẽ làm đường dẫn cũ không còn tải được.
+
 ### Chia sẻ nguồn extension bằng link ngắn
 
 **Bạn chỉ cần thêm link của danh sách nguồn vào vBook một lần.** Khi bấm cài, vBook sẽ tải ZIP tương ứng từ máy chủ.
 
 **Bước 1 — Chuẩn bị thư mục**
 
-Tạo `vbookext`, rồi tạo thư mục con cho từng extension. Ví dụ:
+Tạo một thư mục riêng, chẳng hạn `vbookext` hoặc `vbook`, rồi tạo thư mục con cho từng extension. Ví dụ:
 
 ```text
 vbookext/
@@ -109,7 +120,7 @@ Lưu ý: JSON **bên trong ZIP** là manifest có `metadata` và `script`; JSON 
 **Bước 3 — Sao chép link**
 
 1. Mở `vbookext` trên web.
-2. Ở hàng `plugin.json`, bấm icon liên kết có tooltip **Lấy link extension**.
+2. Ở hàng `plugin.json`, bấm icon liên kết có tooltip **Lấy link chia sẻ**.
 3. Bấm **Sao chép** trong popup.
 4. Dán link vào phần thêm nguồn extension của vBook. Làm mới nguồn, chọn extension và bấm cài.
 
@@ -252,7 +263,7 @@ Tải file về không tự khôi phục dữ liệu. Bước nhập hoặc khô
 
 ## Hiểu và quản lý lịch sử
 
-Khi ứng dụng upload một file trùng đường dẫn, hệ thống giữ bản trước trong **Lịch sử**.
+Khi upload ghi đè hoặc xóa tệp hiện tại, hệ thống giữ bản trước trong **Lịch sử**. Quy tắc áp dụng cho mọi thư mục, gồm `vbookext`, `vbook`, `vbook-backup` và `library`. Nếu ứng dụng xóa tệp rồi upload lại, bản đã xóa vẫn được giữ.
 
 | Lần sao lưu | Bản hiện tại | Lịch sử |
 | --- | --- | --- |
@@ -272,9 +283,14 @@ Lịch sử không tự xóa và mỗi bản dùng dung lượng riêng. Một b
 2. Đọc lại đúng tên file trong hộp xác nhận.
 3. Chọn **Xóa tệp**.
 
-<img src="docs/images/delete-dialog.png" alt="Hộp xác nhận xóa file trên điện thoại" width="390">
+Tệp hiện tại được giữ trong **Lịch sử** trước khi bị xóa khỏi thư mục, nên dung lượng chưa giảm. Để lấy lại tệp, tải bản trong Lịch sử về rồi upload vào đường dẫn mong muốn. Xóa một bản trong Lịch sử sẽ xóa vĩnh viễn và giải phóng dung lượng.
 
-File đã xóa không có thùng rác để khôi phục. Xóa bản hiện tại không tự xóa các bản cũ trong **Lịch sử**.
+```mermaid
+flowchart LR
+    A[Tệp hiện tại] -->|Xóa hoặc ghi đè| B[Lịch sử: vẫn tính dung lượng]
+    B -->|Tải về và upload lại| A
+    B -->|Xóa trong Lịch sử| C[Xóa vĩnh viễn, giải phóng dung lượng]
+```
 
 Nếu nút chuyển thành **Kiểm tra lại**, máy chủ chưa xác nhận được kết quả. Chờ một lúc rồi chọn nút đó hoặc bấm **Làm mới**. Không gửi yêu cầu xóa liên tục.
 
@@ -328,7 +344,7 @@ Mật khẩu chia sẻ chỉ hiện lúc tạo hoặc đổi mật khẩu. Nếu
 | Không đăng nhập được, lỗi 401 | Kiểm tra URL, username và mật khẩu; sau nhiều lần sai hãy chờ 15 phút |
 | Lỗi 403 | Tài khoản có thể bị tạm khóa; liên hệ người quản trị |
 | File quá lớn, lỗi 413 | Kiểm tra Max File; mỗi request tối đa 100 MB |
-| Hết dung lượng, lỗi 507 | Xóa file hoặc lịch sử không cần thiết, hoặc xin tăng quota |
+| Hết dung lượng, lỗi 507 | Xóa các bản không cần thiết trong Lịch sử để giải phóng dung lượng, hoặc xin tăng quota |
 | Backup xong nhưng chưa thấy file | Bấm **Làm mới**, chọn **Tất cả** và xóa nội dung tìm kiếm |
 | Upload web thất bại | Giữ trang mở, kiểm tra mạng, kích thước file và quota |
 | Không lưu được metadata | Kiểm tra mã ngôn ngữ và URL bìa phải là HTTPS |

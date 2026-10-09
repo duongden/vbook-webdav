@@ -129,14 +129,14 @@ test('reject oversized uploads and require a known body length', async () => {
   assert.equal((await bucket.list({ prefix: `${name}/` })).objects.length, 0);
 });
 
-test('DELETE returns an empty 204 and updates storage accounting', async () => {
+test('DELETE returns an empty 204 and retains bytes in history', async () => {
   const name = await user('delete');
   assert.equal((await request(name, '/backup', 'PUT', 'payload')).status, 201);
   const response = await request(name, '/backup', 'DELETE');
   assert.equal(response.status, 204);
   assert.equal(await response.text(), '');
   assert.equal(await bucket.head(`${name}/backup`), null);
-  assert.equal(await usage(name), 0);
+  assert.equal(await usage(name), 7);
 });
 
 test('special filename round trips, literal percent, mount boundary and traversal rejection', async () => {
@@ -181,10 +181,16 @@ test('PROPFIND pages past 1000 files and DELETE without trailing slash removes o
   const response = await request(name, '/webdav/folder', 'PROPFIND', undefined, { Depth: '1' });
   assert.equal(response.status, 207);
   assert.equal(((await response.text()).match(/<D:getcontentlength>/g) || []).length, 1002);
-  assert.equal((await request(name, '/webdav/folder', 'DELETE')).status, 204);
+  let deleted;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    deleted = await request(name, '/webdav/folder', 'DELETE');
+    if (deleted.status === 204) break;
+    assert.equal(deleted.status, 503);
+  }
+  assert.equal(deleted.status, 204);
   assert.equal((await bucket.list({ prefix: `${name}/folder/` })).objects.length, 0);
   assert.ok(await bucket.head(`${name}/folder-other/keep`));
-  assert.equal(await usage(name), 4);
+  assert.equal(await usage(name), 1006);
   assert.equal((await request(name, '/webdav/missing/', 'PROPFIND')).status, 404);
 });
 
@@ -850,4 +856,50 @@ test('short links preserve legacy links, stay stable on overwrite, isolate owner
   assert.equal((await mf.dispatchFetch(legacy + 'qimao/plugin.zip')).status, 404);
   const staleId = new URL(baseUrl).pathname.split('/')[2];
   assert.equal(await kv.get('extension-short:' + staleId), name, 'stale routing record must not grant access');
+});
+
+
+test('file links work outside vbookext with isolated scopes, stable overwrites and revocation', async () => {
+  const name = await user('uniform_links');
+  const headers = { 'X-VBook-Action': 'extensions' };
+  for (const folder of ['vbook', 'vbook-backup', 'library']) {
+    await request(name, '/' + folder + '/plugin.json', 'PUT', JSON.stringify({ data: [{ path: 'child/plugin.zip' }] }));
+    await request(name, '/' + folder + '/child/plugin.zip', 'PUT', 'zip-' + folder);
+    const endpoint = '/api/extensions?path=' + encodeURIComponent(folder + '/plugin.json');
+    const link = await (await request(name, endpoint, 'POST', undefined, headers)).json();
+    assert.equal(link.scope, folder + '/');
+    const manifest = await (await mf.dispatchFetch(link.baseUrl + link.path)).json();
+    assert.equal(await (await mf.dispatchFetch(manifest.data[0].path)).text(), 'zip-' + folder);
+    assert.equal((await mf.dispatchFetch(link.baseUrl + '%2e%2e%2flibrary/plugin.json')).status, 404);
+    await request(name, '/' + folder + '/plugin.json', 'PUT', '{"updated":true}');
+    assert.equal((await (await request(name, endpoint, 'POST', undefined, headers)).json()).baseUrl, link.baseUrl);
+    assert.deepEqual(await (await mf.dispatchFetch(link.baseUrl + link.path)).json(), { updated: true });
+    await request(name, '/api/extensions', 'DELETE', undefined, headers);
+    assert.equal((await mf.dispatchFetch(link.baseUrl + link.path)).status, 404);
+    await request(name, '/' + folder + '/plugin.json', 'PUT', JSON.stringify({ data: [{ path: link.baseUrl + 'child/plugin.zip' }] }));
+    const rotated = await (await request(name, endpoint, 'POST', undefined, headers)).json();
+    const rebound = await (await mf.dispatchFetch(rotated.baseUrl + rotated.path)).json();
+    assert.equal(rebound.data[0].path, rotated.baseUrl + 'child/plugin.zip');
+    assert.equal(await (await mf.dispatchFetch(rebound.data[0].path)).text(), 'zip-' + folder);
+  }
+  await request(name, '/private.txt', 'PUT', 'private');
+  await request(name, '/public.txt', 'PUT', 'public');
+  const rootLink = await (await request(name, '/api/extensions?path=public.txt', 'POST', undefined, headers)).json();
+  assert.equal(await (await mf.dispatchFetch(rootLink.baseUrl + rootLink.path)).text(), 'public');
+  assert.equal((await mf.dispatchFetch(rootLink.baseUrl + 'private.txt')).status, 404);
+});
+
+test('deletion preserves each folder in history and deleting history releases quota', async () => {
+  const name = await user('uniform_delete');
+  for (const folder of ['vbookext', 'vbook', 'vbook-backup', 'library']) {
+    await request(name, '/' + folder + '/file.txt', 'PUT', folder);
+    assert.equal((await request(name, '/' + folder, 'DELETE')).status, 204);
+    assert.equal(await bucket.head(name + '/' + folder + '/file.txt'), null);
+    const history = (await bucket.list({ prefix: name + '/backup-history/' })).objects.filter(object => object.key.endsWith('/' + folder + '/file.txt'));
+    assert.equal(history.length, 1);
+    assert.equal(await (await bucket.get(history[0].key)).text(), folder);
+  }
+  assert.equal(await usage(name), 32);
+  assert.equal((await request(name, '/backup-history', 'DELETE')).status, 204);
+  assert.equal(await usage(name), 0);
 });

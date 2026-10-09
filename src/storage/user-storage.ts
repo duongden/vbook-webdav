@@ -78,6 +78,18 @@ export class UserStorage {
       return new Response('Account storage is disabled', { status: 403 });
     }
 
+    if (action === '/file-link') {
+      const scope = decodeURIComponent(request.headers.get('X-File-Scope') || '');
+      const supplied = request.headers.get('X-Extension-Token') || '';
+      if (!scope.startsWith(username + '/') || scope === username + '/' || scope.includes('/../') || !/^[A-Za-z0-9_-]{22}$/.test(supplied)) return new Response('Invalid scope', { status: 400 });
+      const existing = await this.state.storage.get<string>('file-scope:' + scope);
+      if (!existing && (await this.state.storage.list({ prefix: 'file-token:', limit: 100 })).size >= 100) return new Response('Share limit reached', { status: 409 });
+      const token = existing || supplied;
+      await this.state.storage.put({ ['file-scope:' + scope]: token, ['file-token:' + token]: scope });
+      await this.env.USER_KV.put('extension-short:' + token, username);
+      await this.env.USER_KV.put('file-scope:' + token, scope);
+      return new Response(token);
+    }
     if (action === '/extension-short-link') {
       const supplied = request.headers.get('X-Extension-Token') || '';
       if (!/^[A-Za-z0-9_-]{22}$/.test(supplied)) return new Response('Invalid token', { status: 400 });
@@ -88,6 +100,8 @@ export class UserStorage {
       return new Response(token);
     }
     if (action === '/extension-short-auth') {
+      const scope = await this.state.storage.get<string>('file-token:' + (request.headers.get('X-Extension-Token') || ''));
+      if (scope) return new Response(null, { status: 204, headers: { 'X-File-Scope': encodeURIComponent(scope) } });
       const token = await this.state.storage.get<string>('extension-short-token');
       return new Response(null, { status: token && constantTimeEqual(token, request.headers.get('X-Extension-Token') || '') ? 204 : 403 });
     }
@@ -100,6 +114,10 @@ export class UserStorage {
     }
     if (action === '/extension-revoke') {
       await this.state.storage.delete(['extension-token', 'extension-short-token']);
+      for (const prefix of ['file-scope:', 'file-token:']) {
+        const records = await this.state.storage.list({ prefix });
+        if (records.size) await this.state.storage.delete([...records.keys()]);
+      }
       return new Response(null, { status: 204 });
     }
     if (action === '/extension-auth') {
@@ -155,12 +173,19 @@ export class UserStorage {
       if (action === '/retire') {
         await this.state.storage.put('disabled', true);
         await this.state.storage.delete(['extension-token', 'extension-short-token']);
+        for (const prefix of ['file-scope:', 'file-token:']) {
+          const records = await this.state.storage.list({ prefix });
+          if (records.size) await this.state.storage.delete([...records.keys()]);
+        }
         await this.state.storage.delete(['drive-config', 'drive-configs']);
         const shares = await this.state.storage.list<WebDavShare>({ prefix: 'share:' });
         if (shares.size) await this.state.storage.delete([...shares.keys()]);
       }
       // Persist the job and its retry alarm before touching R2. DELETE is idempotent.
-      await this.state.storage.put({ delete: key, dirty: true });
+      const historyRoot = `${username}/backup-history`;
+      const archive = action === '/delete' && key !== username + '/' && key !== historyRoot && !key.startsWith(historyRoot + '/');
+      const stamp = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().replace('T', '_').replace(/[:.]/g, '-').replace('Z', '_UTC+7');
+      await this.state.storage.put({ delete: key, dirty: true, 'delete-archive': archive ? `${historyRoot}/${stamp}_${crypto.randomUUID()}/` : '' });
       await this.state.storage.setAlarm(Date.now() + RETRY_MS);
       return await this.drainDelete() ? new Response(null, { status: 204 }) : this.busy();
     }
@@ -489,15 +514,32 @@ export class UserStorage {
   private async drainDelete(): Promise<boolean> {
     const key = await this.state.storage.get<string>('delete');
     if (!key) return true;
+    const archive = await this.state.storage.get<string>('delete-archive');
+    const archiveObject = async (source: string) => {
+      if (archive && !source.endsWith('/')) {
+        let destination = archive + source.slice(source.indexOf('/') + 1);
+        if (new TextEncoder().encode(destination).length > 1024) {
+          const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source)));
+          destination = archive + 'long-path/' + Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+        const object = await this.env.STORAGE_R2.get(source);
+        if (object) await this.env.STORAGE_R2.put(destination, object.body, { httpMetadata: object.httpMetadata, customMetadata: { ...object.customMetadata, originalPath: source.slice(source.indexOf('/') + 1) } });
+      }
+    };
+    await archiveObject(key);
     await this.env.STORAGE_R2.delete(key);
     const prefix = key.endsWith('/') ? key : `${key}/`;
     // Always take the first remaining page; this also resumes safely after a restart.
     for (let page = 0; page < DELETE_PAGES; page++) {
-      const listed = await this.env.STORAGE_R2.list({ prefix, limit: 1000 });
-      if (listed.objects.length) await this.env.STORAGE_R2.delete(listed.objects.map(object => object.key));
+      const listed = await this.env.STORAGE_R2.list({ prefix, limit: archive ? 20 : 1000 });
+      if (listed.objects.length) {
+        for (const object of listed.objects) await archiveObject(object.key);
+        await this.env.STORAGE_R2.delete(listed.objects.map(object => object.key));
+      }
       if (!listed.truncated) {
         await this.deleteMetadataForKey(key);
         await this.state.storage.delete('delete');
+        await this.state.storage.delete('delete-archive');
         await this.state.storage.deleteAlarm();
         // Keep dirty=true: next usage query reconciles R2, including any partial retry.
         return true;

@@ -86,8 +86,9 @@ test('desktop: search, sort, confirmation and empty state; 204 updates without n
   await confirmDelete(page, 'Ghi chú & dấu trang.txt');
   await waitText(page, 'toast-message', 'Đã xóa');
   await waitText(page, 'sync-note', 'Vừa cập nhật');
-  assert.equal(await page.locator('[data-file]').count(), 3);
-  assert.equal(await page.locator('#total-files').textContent(), '3');
+  assert.equal(await page.locator('[data-file]').count(), 4);
+  assert.equal(await page.locator('[data-file][data-name="Ghi chú & dấu trang.txt"]').count(), 0);
+  assert.equal(await page.locator('#total-files').textContent(), '4');
   assert.equal(navigations, 0);
 });
 
@@ -283,9 +284,9 @@ for (const failure of ['http500', 'network']) {
     await waitText(page, 'sync-note', 'Vừa cập nhật');
     assert.ok(heads >= 1);
     assert.equal(await bucket.head(username + '/a#b & c.json'), null);
-    assert.equal(await page.locator('[data-file]').count(), 0);
-    assert.equal(await page.locator('#total-files').textContent(), '0');
-    await page.getByRole('heading', { name: 'Kho lưu trữ đang trống' }).waitFor();
+    assert.equal(await page.locator('[data-file]').count(), 1);
+    assert.equal(await page.locator('[data-file][data-name^="backup-history/"]').count(), 1);
+    assert.equal(await page.locator('#total-files').textContent(), '1');
   });
 }
 
@@ -315,7 +316,8 @@ test('pending deletion verifies without sending another DELETE', { timeout: 2000
   await waitText(page, 'toast-message', 'Đã xóa');
   await waitText(page, 'sync-note', 'Vừa cập nhật');
   assert.equal(deletes, 1);
-  assert.equal(await page.locator('[data-file]').count(), 0);
+  assert.equal(await page.locator('[data-file][data-name="pending.json"]').count(), 0);
+  assert.equal(await page.locator('[data-file][data-name^="backup-history/"]').count(), 1);
 });
 
 test('permission errors do not pretend the file was deleted', { timeout: 20000 }, async t => {
@@ -357,7 +359,7 @@ test('mobile layout fits, keyboard can cancel, and names remain escaped on refre
     const box = node.getBoundingClientRect();
     return { width: box.width, height: box.height, text: node.textContent.trim(), label: node.getAttribute('aria-label') };
   }));
-  assert.equal(actionBoxes.length, 3);
+  assert.equal(actionBoxes.length, 4);
   assert.ok(actionBoxes.every(box => box.width === 42 && box.height === 42 && box.text === '' && box.label));
   assert.equal(await page.locator('.file-name img').count(), 0);
   await page.getByRole('searchbox').fill('quote');
@@ -703,6 +705,27 @@ test('extension link action survives refresh and revokes the generated URL', asy
   assert.match(link, /\/s\/[A-Za-z0-9_-]{22}\/plugin.json$/);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Thu hồi link', exact: true }).click();
-  await waitText(page, 'toast-message', 'Đã thu hồi link extension');
+  await waitText(page, 'toast-message', 'Đã thu hồi link chia sẻ tệp');
   assert.equal(await page.locator('#extension-dialog').evaluate(dialog => dialog.open), false);
+});
+
+
+test('all folders expose file links in list and grid, including after refresh', async t => {
+  const { page } = await openDrive(t, { width: 390, files: [
+    { name: 'vbook/plugin.json', size: 12 }, { name: 'vbook-backup/backup.zip', size: 12 },
+  ] });
+  for (const name of ['plugin.json', 'backup.zip']) {
+    await page.getByRole('button', { name: 'Lấy link ' + name, exact: true }).click();
+    await page.locator('#extension-dialog').waitFor({ state: 'visible' });
+    const link = await page.getByLabel('Link tệp', { exact: true }).inputValue();
+    assert.ok(link.endsWith('/' + name));
+    assert.match(await page.locator('#file-share-scope').textContent(), /vbook/);
+    await page.locator('#close-extension').click();
+  }
+  await page.getByRole('button', { name: 'Dạng lưới', exact: true }).click();
+  await page.getByRole('button', { name: 'Làm mới', exact: true }).click();
+  await waitText(page, 'sync-note', 'Vừa cập nhật');
+  assert.equal(await page.getByRole('button', { name: 'Lấy link plugin.json', exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('button', { name: 'Lấy link backup.zip', exact: true }).isVisible(), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });

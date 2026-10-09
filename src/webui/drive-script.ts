@@ -72,7 +72,7 @@ export const driveScript = String.raw`
     edit.setAttribute('aria-label', 'Sửa thông tin ' + original);
     edit.title = 'Sửa thông tin ' + original;
     const link = row.querySelector('.extension-link');
-    link.hidden = !row.dataset.name.startsWith('vbookext/');
+    link.hidden = false;
     link.setAttribute('aria-label', 'Lấy link ' + original);
   }
   function formatBytes(bytes) {
@@ -463,7 +463,7 @@ export const driveScript = String.raw`
     selected = row;
     openDeleteDialog({
       type: 'single', title: 'Xóa tệp này?',
-      description: 'Tệp sẽ được xóa khỏi kho lưu trữ. Thao tác này không thể hoàn tác.',
+      description: row.dataset.name.startsWith('backup-history/') ? 'Bản lịch sử sẽ bị xóa vĩnh viễn.' : 'Tệp được chuyển vào Lịch sử và vẫn tính dung lượng. Xóa trong Lịch sử để giải phóng dung lượng.',
       name: row.dataset.name, confirm: 'Xóa tệp',
     });
   });
@@ -472,7 +472,7 @@ export const driveScript = String.raw`
     if (!paths.length) return;
     openDeleteDialog({
       type: 'bulk', paths, title: 'Xóa các mục đã chọn?',
-      description: 'Các tệp và toàn bộ nội dung trong thư mục đã chọn sẽ bị xóa. Thao tác này không thể hoàn tác.',
+      description: 'Tệp hiện tại được giữ trong Lịch sử và vẫn tính dung lượng. Các bản đã nằm trong Lịch sử sẽ bị xóa vĩnh viễn.',
       name: paths.length + ' mục', confirm: 'Xóa ' + paths.length + ' mục',
     });
   });
@@ -702,28 +702,30 @@ export const driveScript = String.raw`
     if (!button) return;
     button.disabled = true;
     try {
-      const response = await fetchWithTimeout('/api/extensions', { method: 'POST', headers: { 'X-VBook-Action': 'extensions' } });
+      const filePath = button.closest('[data-file]').dataset.name;
+      const response = await fetchWithTimeout('/api/extensions?path=' + encodeURIComponent(filePath), { method: 'POST', headers: { 'X-VBook-Action': 'extensions' } });
       if (!response.ok) throw new Error('link');
       const data = await response.json();
-      const path = button.closest('[data-file]').dataset.name.slice('vbookext/'.length);
+      const path = data.path;
+      document.getElementById('file-share-scope').textContent = 'Ai có link có thể tải ' + (data.scope.endsWith('/') ? 'mọi tệp trong thư mục ' : 'tệp ') + data.scope + '. Không chia sẻ nếu bạn muốn giữ riêng.';
       document.getElementById('extension-url').value = data.baseUrl + encodePath(path);
       extensionDialog.showModal();
-    } catch { showToast('Chưa lấy được link extension. Hãy thử lại.', 'error'); }
+    } catch { showToast('Chưa lấy được link chia sẻ tệp. Hãy thử lại.', 'error'); }
     finally { button.disabled = false; }
   });
   document.getElementById('close-extension').onclick = () => extensionDialog.close();
   document.getElementById('copy-extension').onclick = async () => {
     const input = document.getElementById('extension-url');
-    try { await navigator.clipboard.writeText(input.value); showToast('Đã sao chép link extension.'); }
+    try { await navigator.clipboard.writeText(input.value); showToast('Đã sao chép link chia sẻ tệp.'); }
     catch { input.focus(); input.select(); showToast('Hãy sao chép link trong ô đã chọn.'); }
   };
   document.getElementById('revoke-extension').onclick = async () => {
-    if (!confirm('Thu hồi tất cả link extension đã tạo? Các link đang dùng trong vBook sẽ ngừng hoạt động.')) return;
+    if (!confirm('Thu hồi tất cả link chia sẻ tệp đã tạo? Các link đang dùng trong vBook sẽ ngừng hoạt động.')) return;
     try {
       const response = await fetchWithTimeout('/api/extensions', { method: 'DELETE', headers: { 'X-VBook-Action': 'extensions' } });
       if (!response.ok) throw new Error('revoke');
-      document.getElementById('extension-url').value = ''; extensionDialog.close(); showToast('Đã thu hồi link extension.');
-    } catch { showToast('Chưa thu hồi được link extension.', 'error'); }
+      document.getElementById('extension-url').value = ''; extensionDialog.close(); showToast('Đã thu hồi link chia sẻ tệp.');
+    } catch { showToast('Chưa thu hồi được link chia sẻ tệp.', 'error'); }
   };
 
   function showConnection(connection) {

@@ -10,11 +10,20 @@ export const extensionApi = new Hono<AppEnv>();
 extensionApi.post('/', async c => {
   if (c.req.header('X-VBook-Action') !== 'extensions' || (c.req.header('Origin') && c.req.header('Origin') !== new URL(c.req.url).origin)) return c.text('Forbidden', 403);
   const token = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const response = await shareStorageRequest(c.env, c.get('username'), 'extension-short-link', { 'X-Extension-Token': token });
+  const path = c.req.query('path');
+  const owner = c.get('username');
+  const key = path === undefined ? null : sanitizeObjectKey(owner, '/' + encodePath(path));
+  if (path !== undefined && (!key || key.endsWith('/') || !await c.env.STORAGE_R2.head(key))) return c.notFound();
+  // Existing extension tokens retain their original scope. New scopes never expose the account root.
+  const scope = key && !key.startsWith(owner + '/vbookext/') ? (key.lastIndexOf('/') > owner.length ? key.slice(0, key.lastIndexOf('/') + 1) : key) : null;
+  const response = await shareStorageRequest(c.env, owner, scope ? 'file-link' : 'extension-short-link', { 'X-Extension-Token': token, ...(scope ? { 'X-File-Scope': encodeURIComponent(scope) } : {}) });
   if (!response.ok) return c.text('Unavailable', 503);
   const stored = await response.text();
   c.header('Cache-Control', 'private, no-store');
-  return c.json({ baseUrl: `${new URL(c.req.url).origin}/s/${stored}/` });
+  const shareRoot = scope || owner + '/vbookext/';
+  const directory = shareRoot.endsWith('/') ? shareRoot : shareRoot.slice(0, shareRoot.lastIndexOf('/') + 1);
+  const relative = key ? key.slice(directory.length) : '';
+  return c.json({ baseUrl: `${new URL(c.req.url).origin}/s/${stored}/`, path: relative, scope: scope ? scope.slice(owner.length + 1) : 'vbookext/' });
 });
 extensionApi.delete('/', async c => {
   if (c.req.header('X-VBook-Action') !== 'extensions' || (c.req.header('Origin') && c.req.header('Origin') !== new URL(c.req.url).origin)) return c.text('Forbidden', 403);
@@ -22,7 +31,7 @@ extensionApi.delete('/', async c => {
 });
 
 /** Resolve repository assets without sending the bearer token to an external host. */
-async function assetUrl(value: unknown, owner: string, key: string, origin: string, mount: string, lookup: (id: string) => Promise<string | null>): Promise<unknown> {
+async function assetUrl(value: unknown, owner: string, key: string, origin: string, mount: string, root: string, lookup: (id: string) => Promise<string | null>): Promise<unknown> {
   if (typeof value !== 'string' || !value.trim()) return value;
   let rawPath: string;
   try {
@@ -33,18 +42,21 @@ async function assetUrl(value: unknown, owner: string, key: string, origin: stri
       if (absolute.pathname.startsWith('/s/')) {
         const parts = absolute.pathname.slice(3).split('/');
         const id = parts.shift() || '';
-        if (!SHORT_TOKEN.test(id) || await lookup(id) !== owner) return value;
-        rawPath = '/vbookext/' + parts.join('/');
+        if (!SHORT_TOKEN.test(id)) return value;
+        const previousScope = await lookup(id);
+        if (!previousScope || !previousScope.startsWith(owner + '/')) return value;
+        const previousDirectory = previousScope.endsWith('/') ? previousScope : previousScope.slice(0, previousScope.lastIndexOf('/') + 1);
+        rawPath = '/' + encodePath(previousDirectory.slice(owner.length + 1)) + parts.join('/');
       } else if (absolute.pathname.startsWith(sharedPrefix)) {
         const remainder = absolute.pathname.slice(sharedPrefix.length);
         const slash = remainder.indexOf('/');
         if (slash < 0 || !TOKEN.test(remainder.slice(0, slash))) return value;
         // A saved repository may contain URLs issued before the owner rotated its link.
         rawPath = '/vbookext/' + remainder.slice(slash + 1);
-      } else if (absolute.pathname.startsWith('/webdav/vbookext/')) {
+      } else if (absolute.pathname.startsWith('/webdav/')) {
         rawPath = absolute.pathname.slice('/webdav'.length);
       } else return value;
-    } else if (value.startsWith('/webdav/vbookext/')) {
+    } else if (value.startsWith('/webdav/')) {
       rawPath = new URL(value, origin).pathname.slice('/webdav'.length);
     } else if (value.startsWith('/vbookext/') || value.startsWith('vbookext/')) {
       rawPath = new URL('/' + value.replace(/^\//, ''), origin).pathname;
@@ -53,7 +65,6 @@ async function assetUrl(value: unknown, owner: string, key: string, origin: stri
       rawPath = new URL(value, origin + '/' + encodePath(directory)).pathname;
     }
     const target = sanitizeObjectKey(owner, rawPath);
-    const root = owner + '/vbookext/';
     if (!target || !target.startsWith(root) || target.endsWith('/')) return value;
     return origin + mount + encodePath(target.slice(root.length));
   } catch { return value; }
@@ -78,8 +89,11 @@ async function serveExtension(c: Context<AppEnv>, short: boolean): Promise<Respo
   const mount = short ? `/s/${token}/` : `/extensions/${owner}/${token}/`;
   const pathname = new URL(c.req.url).pathname;
   if (!pathname.startsWith(mount)) return c.notFound();
-  const key = sanitizeObjectKey(owner, '/vbookext/' + pathname.slice(mount.length));
-  if (!key || !key.startsWith(`${owner}/vbookext/`) || key.endsWith('/')) return c.notFound();
+  const scope = verified.headers.get('X-File-Scope');
+  const root = scope ? decodeURIComponent(scope) : owner + '/vbookext/';
+  const directory = root.endsWith('/') ? root : root.slice(0, root.lastIndexOf('/') + 1);
+  const key = sanitizeObjectKey(owner, '/' + encodePath(directory.slice(owner.length + 1)) + pathname.slice(mount.length));
+  if (!key || !(root.endsWith('/') ? key.startsWith(root) : key === root) || key.endsWith('/')) return c.notFound();
   if (key.toLowerCase().endsWith('.json')) {
     const object = await c.env.STORAGE_R2.get(key);
     if (!object) return c.notFound();
@@ -94,13 +108,19 @@ async function serveExtension(c: Context<AppEnv>, short: boolean): Promise<Respo
           const owners = new Map<string, Promise<string | null>>();
           const lookup = (id: string) => {
             let pending = owners.get(id);
-            if (!pending) { pending = c.env.USER_KV.get('extension-short:' + id); owners.set(id, pending); }
+            if (!pending) {
+              pending = (async () => {
+                const previousOwner = await c.env.USER_KV.get('extension-short:' + id);
+                return previousOwner ? await c.env.USER_KV.get('file-scope:' + id) || previousOwner + '/vbookext/' : null;
+              })();
+              owners.set(id, pending);
+            }
             return pending;
           };
           for (const entry of data) {
             if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
             const record = entry as Record<string, unknown>;
-            for (const field of ['path', 'icon']) if (field in record) record[field] = await assetUrl(record[field], owner, key, new URL(c.req.url).origin, mount, lookup);
+            for (const field of ['path', 'icon']) if (field in record) record[field] = await assetUrl(record[field], owner, key, new URL(c.req.url).origin, mount, directory, lookup);
           }
           output = JSON.stringify(manifest);
         }
@@ -113,5 +133,5 @@ async function serveExtension(c: Context<AppEnv>, short: boolean): Promise<Respo
       'Content-Security-Policy': "sandbox; default-src 'none'", 'Referrer-Policy': 'no-referrer',
     } });
   }
-  return readWebDav(c, { owner, rootKey: `${owner}/vbookext/`, mountPath: mount, writable: false }, key);
+  return readWebDav(c, { owner, rootKey: directory, mountPath: mount, writable: false }, key);
 }

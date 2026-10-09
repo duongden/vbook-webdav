@@ -80,8 +80,9 @@ test('failed delete is persisted, restarted object retries and reconciles accoun
   await restarted.alarm();
   assert.equal(f.data.has('delete'), false);
   assert.equal(f.alarm(), null);
-  assert.deepEqual([...f.objects.keys()], ['alice/keep']);
-  assert.equal((await (await f.call(restarted, 'usage')).json()).bytes, 3);
+  assert.deepEqual([...f.objects.keys()].filter(key => !key.startsWith('alice/backup-history/')), ['alice/keep']);
+  assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/backup-history/')).length, 5);
+  assert.equal((await (await f.call(restarted, 'usage')).json()).bytes, 8);
 });
 
 test('large deletion reports pending instead of success, then an alarm finishes it', async () => {
@@ -91,7 +92,8 @@ test('large deletion reports pending instead of success, then an alarm finishes 
   assert.equal(response.headers.get('Retry-After'), '30');
   assert.ok(f.data.has('delete'));
   await object.alarm();
-  assert.deepEqual([...f.objects.keys()], ['alice/keep']);
+  assert.deepEqual([...f.objects.keys()].filter(key => !key.startsWith('alice/backup-history/')), ['alice/keep']);
+  assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/backup-history/')).length, 45);
 });
 
 test('actual upload size must match Content-Length and a failed overwrite keeps old data', async () => {
@@ -164,4 +166,17 @@ test('interrupted COPY resumes without losing sources or double-counting copied 
   assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/tree/')).length, 3);
   assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/copied/')).length, 3);
   assert.equal((await (await f.call(object, 'usage')).json()).bytes, 9);
+});
+
+
+test('history copy failure never deletes the original and restart archives exactly once', async () => {
+  const f = fixture(1), original = f.bucket.put;
+  let fail = true;
+  f.bucket.put = async (...args) => { if (fail) { fail = false; throw new Error('Archive failed'); } return original(...args); };
+  await assert.rejects(f.call(f.instance(), 'delete', 'alice/tree/0'), /Archive failed/);
+  assert.ok(f.objects.has('alice/tree/0'));
+  await f.instance().alarm();
+  assert.equal(f.objects.has('alice/tree/0'), false);
+  assert.equal([...f.objects.keys()].filter(key => key.startsWith('alice/backup-history/')).length, 1);
+  assert.equal((await (await f.call(f.instance(), 'usage')).json()).bytes, 4);
 });
