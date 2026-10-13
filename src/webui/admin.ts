@@ -1,3 +1,4 @@
+import { themeBoot } from "./theme";
 import { Hono, Context, Next } from 'hono';
 import { html, raw } from 'hono/html';
 import { AppEnv, UserConfig } from '../types';
@@ -118,7 +119,7 @@ adminApp.get('/login', (c) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login · Vân Du</title>
-      ${raw(FAVICON_LINK)}
+      ${raw(FAVICON_LINK)}${raw(themeBoot)}
       <style>${raw(adminStyles)}</style>
     </head>
     <body class="login-page">
@@ -152,7 +153,7 @@ adminApp.post('/login', async (c) => {
   if (attempts.count >= MAX_ATTEMPTS && Date.now() < attempts.until) {
     const remainingMinutes = Math.ceil((attempts.until - Date.now()) / 60000);
     return c.html(`<!DOCTYPE html><html lang="en">
-      <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Locked</title>${raw(FAVICON_LINK)}
+      <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Locked</title>${raw(FAVICON_LINK)}${raw(themeBoot)}
       <style>${adminStyles}</style></head>
       <body class="login-page">
         <div class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-danger/30 w-96 text-center">
@@ -183,7 +184,7 @@ adminApp.post('/login', async (c) => {
   );
   const remaining = MAX_ATTEMPTS - newCount;
   return c.html(`<!DOCTYPE html><html lang="en">
-    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title>${raw(FAVICON_LINK)}
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Admin Login</title>${raw(FAVICON_LINK)}${raw(themeBoot)}
     <style>${adminStyles}</style></head>
     <body class="login-page">
       <form method="POST" action="/admin/login" class="bg-white/80 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-secondary w-96">
@@ -239,7 +240,7 @@ adminApp.get('/', async (c) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Admin Dashboard · Vân Du</title>
-      ${raw(FAVICON_LINK)}
+      ${raw(FAVICON_LINK)}${raw(themeBoot)}
       <style>${raw(adminStyles)}</style>
     </head>
     <body class="admin-page p-8">

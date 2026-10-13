@@ -51,6 +51,12 @@ Tên menu có thể khác tùy phiên bản ứng dụng. Nếu kiểm tra kết
 
 Mỗi trang hiển thị tối đa 20 file. Dùng các nút mũi tên ở cuối danh sách để chuyển trang.
 
+### Giao diện sáng và tối
+
+Bấm biểu tượng giao diện cạnh tên tài khoản để chuyển lần lượt giữa **Theo thiết bị → Sáng → Tối**. Di chuột hoặc dùng phím Tab để xem trạng thái và chế độ kế tiếp. Trên trang admin, nút nằm cạnh nút đăng xuất; trên trang đăng nhập, nút nằm ở góc trên bên phải.
+
+Lần đầu mở web, màu giao diện theo cài đặt thiết bị. Lựa chọn được nhớ trên trình duyệt và áp dụng chung cho trang quản lý tệp, admin và các hộp thoại.
+
 ### Các nút cạnh mỗi file
 
 | Biểu tượng | Thao tác |

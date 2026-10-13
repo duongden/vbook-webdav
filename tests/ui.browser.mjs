@@ -440,6 +440,14 @@ test('admin manages accounts without password or content controls on mobile', { 
   assert.ok(boxes.every(box => box.height === boxes[0].height && box.whiteSpace === 'nowrap'));
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: '/tmp/vbook-admin-shared-desktop.png', fullPage: true });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  assert.equal(await page.locator('.glass').first().evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(26, 40, 35)');
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({ path: '/tmp/vbook-admin-dark-mobile.png', fullPage: true, animations: 'disabled' });
+
 
 });
 
@@ -728,4 +736,46 @@ test('all folders expose file links in list and grid, including after refresh', 
   assert.equal(await page.getByRole('button', { name: 'Lấy link plugin.json', exact: true }).isVisible(), true);
   assert.equal(await page.getByRole('button', { name: 'Lấy link backup.zip', exact: true }).isVisible(), true);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
+
+
+test('theme follows system, persists explicit choice, syncs tabs and styles dialogs on mobile', async t => {
+  const { page, context } = await openDrive(t, { width: 390, files: [] });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  await page.locator('#theme-toggle').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+  await page.locator('#theme-toggle').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  await page.reload({ waitUntil: 'networkidle' });
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  await page.getByRole('button', { name: 'Tải tệp lên', exact: true }).click();
+  assert.equal(await page.locator('#upload-dialog').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(26, 40, 35)');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: '/tmp/vbook-theme-dark-mobile.png', fullPage: true, animations: 'disabled' });
+  await page.locator('#close-upload').click();
+  const other = await context.newPage();
+  await other.goto(baseURL + '/admin/login', { waitUntil: 'networkidle' });
+  assert.equal(await other.locator('html').getAttribute('data-theme'), 'dark');
+  await other.locator('#theme-toggle').click(); // System
+  await other.locator('#theme-toggle').click(); // Light
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  await page.locator('#theme-toggle').click(); // Dark
+  await page.locator('#theme-toggle').click(); // System
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+});
+
+test('theme works when browser storage is unavailable', async t => {
+  const { page } = await openDrive(t, { files: [] });
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => { throw new Error('blocked storage'); };
+    Storage.prototype.setItem = () => { throw new Error('blocked storage'); };
+  });
+  await page.goto(baseURL + '/admin/login', { waitUntil: 'networkidle' });
+  await page.locator('#theme-toggle').click();
+  await page.locator('#theme-toggle').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
 });

@@ -1,3 +1,4 @@
+import { themeBoot } from "./theme";
 import { Context } from 'hono';
 import { html, raw } from 'hono/html';
 import { AppEnv } from '../types';
@@ -97,7 +98,7 @@ export const webuiHandler = async (c: Context<AppEnv>) => {
   c.header('X-Content-Type-Options', 'nosniff');
   return c.html(html`<!DOCTYPE html>
 <html lang="vi">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Tệp của tôi · VBook Cloud</title>${raw(FAVICON_LINK)}<style>${raw(driveStyles)}</style></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Tệp của tôi · VBook Cloud</title>${raw(FAVICON_LINK)}${raw(themeBoot)}<style>${raw(driveStyles)}</style></head>
 <body>
   <header class="topbar"><div class="topbar-inner">
     <a class="brand" href="/" aria-label="VBook Cloud — trang chủ"><span class="brand-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 20 10a4 4 0 0 1-1 8H7Z"/></svg></span><span>VBook <span class="brand-secondary">Cloud</span></span></a>
